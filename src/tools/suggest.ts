@@ -2,17 +2,25 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZenMoneyAPI } from "../api.js";
 import type { ZenState } from "../state.js";
+import { toolError, toolText } from "../lib/result.js";
 
 export function registerSuggestTools(
   server: McpServer,
   api: ZenMoneyAPI,
   state: ZenState
 ) {
-  server.tool(
+  server.registerTool(
     "suggest_category",
-    "Get ZenMoney's auto-suggestion for category and merchant based on a payee name. Useful for categorizing receipts.",
     {
-      payee: z.string().describe("The payee/merchant name from the receipt"),
+      title: "Suggest Category",
+      description: "Get ZenMoney's auto-suggestion for category and merchant based on a payee name. Useful for categorizing receipts.",
+      inputSchema: {
+        payee: z.string().describe("The payee/merchant name from the receipt"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ payee }) => {
       try {
@@ -20,14 +28,7 @@ export function registerSuggestTools(
         const suggestion = results[0];
 
         if (!suggestion) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `No suggestions found for "${payee}".`,
-              },
-            ],
-          };
+          return toolText(`No suggestions found for "${payee}".`);
         }
 
         const parts: string[] = [`Suggestions for "${payee}":`];
@@ -54,19 +55,9 @@ export function registerSuggestTools(
           parts.push(`- Normalized payee: ${suggestion.payee}`);
         }
 
-        return {
-          content: [{ type: "text" as const, text: parts.join("\n") }],
-        };
+        return toolText(parts.join("\n"));
       } catch (error) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Suggest failed: ${error instanceof Error ? error.message : String(error)}`,
-            },
-          ],
-          isError: true,
-        };
+        return toolError(`Suggest failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   );

@@ -1,29 +1,29 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZenState } from "../state.js";
+import { notSyncedError, toolText } from "../lib/result.js";
 
 export function registerAccountTools(server: McpServer, state: ZenState) {
-  server.tool(
+  server.registerTool(
     "list_accounts",
-    "List all user accounts (wallets, cards, cash). Sync must be done first.",
     {
-      include_archived: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe("Include archived accounts"),
+      title: "List Accounts",
+      description: "List all user accounts (wallets, cards, cash). Sync must be done first.",
+      inputSchema: {
+        include_archived: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Include archived accounts"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ include_archived }) => {
       if (!state.isSynced) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: "Data not synced yet. Please run sync_data first.",
-            },
-          ],
-          isError: true,
-        };
+        return notSyncedError();
       }
 
       const accounts = include_archived
@@ -45,17 +45,11 @@ export function registerAccountTools(server: McpServer, state: ZenState) {
         return `- **${a.title}** [${a.type}] — ${balance} ${currency}${bankName ? ` | Bank: ${bankName}` : ""}${a.archive ? " (archived)" : ""}  \n  id: \`${a.id}\``;
       });
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text:
-              lines.length > 0
-                ? `Accounts (${lines.length}):\n\n${lines.join("\n")}`
-                : "No accounts found.",
-          },
-        ],
-      };
+      return toolText(
+        lines.length > 0
+          ? `Accounts (${lines.length}):\n\n${lines.join("\n")}`
+          : "No accounts found."
+      );
     }
   );
 }

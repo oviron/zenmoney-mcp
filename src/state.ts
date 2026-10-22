@@ -241,27 +241,6 @@ export class ZenState {
     }
   }
 
-  findAccountByName(name: string): Account | undefined {
-    const lower = name.toLowerCase();
-    return this.accounts.find(
-      (a) => a.title.toLowerCase().includes(lower)
-    );
-  }
-
-  findTagByName(name: string): Tag | undefined {
-    const lower = name.toLowerCase();
-    return this.tags.find(
-      (t) => t.title.toLowerCase().includes(lower)
-    );
-  }
-
-  findMerchantByName(name: string): Merchant | undefined {
-    const lower = name.toLowerCase();
-    return this.merchants.find(
-      (m) => m.title.toLowerCase().includes(lower)
-    );
-  }
-
   getTagHierarchy(): { parent: Tag; children: Tag[] }[] {
     const parentTags = this.tags.filter((t) => !t.parent);
     return parentTags.map((parent) => ({

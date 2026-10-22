@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Account, DiffResponse, Tag, ZenMoneyAPI } from "../src/api.js";
 import { ZenState } from "../src/state.js";
-import { registerTransactionTools } from "../src/tools/transactions.js";
+import { createServer } from "../src/server.js";
 import {
   makeDiffResponse,
   makeTransaction,
@@ -48,8 +48,7 @@ async function setup(opts?: {
     );
   }
 
-  server = new McpServer({ name: "test", version: "1.0.0" });
-  registerTransactionTools(server, api, state);
+  server = createServer(api, state);
 
   client = new Client({ name: "test-client", version: "1.0.0" });
   const [ct, st] = InMemoryTransport.createLinkedPair();
