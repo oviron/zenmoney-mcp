@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { Tag } from "../api.js";
 import type { ZenState } from "../state.js";
 import { notSyncedError, toolText } from "../lib/result.js";
 
@@ -7,7 +8,7 @@ export function registerCategoryTools(server: McpServer, state: ZenState) {
     "list_categories",
     {
       title: "List Categories",
-      description: "List all expense/income categories (tags) with their hierarchy. Sync must be done first.",
+      description: "List all expense/income categories (tags) with their hierarchy, including categories whose parent is missing. Sync must be done first.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -19,20 +20,39 @@ export function registerCategoryTools(server: McpServer, state: ZenState) {
         return notSyncedError();
       }
 
-      const hierarchy = state.getTagHierarchy();
       const lines: string[] = [];
-
-      for (const { parent, children } of hierarchy) {
-        const flags: string[] = [];
-        if (parent.showOutcome) flags.push("expense");
-        if (parent.showIncome) flags.push("income");
-        lines.push(
-          `- **${parent.title}** (${flags.join(", ")}) — id: \`${parent.id}\``
-        );
-        for (const child of children) {
-          lines.push(`  - ${child.title} — id: \`${child.id}\``);
+      const tagIds = new Set(state.tags.map((tag) => tag.id));
+      const children = new Map<string, Tag[]>();
+      for (const tag of state.tags) {
+        if (tag.parent) {
+          const siblings = children.get(tag.parent) ?? [];
+          siblings.push(tag);
+          children.set(tag.parent, siblings);
         }
       }
+      const visited = new Set<string>();
+
+      function appendTag(tag: Tag, depth: number) {
+        if (visited.has(tag.id)) return;
+        visited.add(tag.id);
+        if (depth === 0) {
+          const flags: string[] = [];
+          if (tag.showOutcome) flags.push("expense");
+          if (tag.showIncome) flags.push("income");
+          const orphan = tag.parent && !tagIds.has(tag.parent)
+            ? ` (parent not found: ${tag.parent})`
+            : "";
+          lines.push(`- **${tag.title}** (${flags.join(", ")}) — id: \`${tag.id}\`${orphan}`);
+        } else {
+          lines.push(`${"  ".repeat(depth)}- ${tag.title} — id: \`${tag.id}\``);
+        }
+        for (const child of children.get(tag.id) ?? []) appendTag(child, depth + 1);
+      }
+
+      for (const tag of state.tags) {
+        if (!tag.parent || !tagIds.has(tag.parent)) appendTag(tag, 0);
+      }
+      for (const tag of state.tags) appendTag(tag, 0);
 
       return toolText(
         lines.length > 0

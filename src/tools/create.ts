@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZenState } from "../state.js";
 import { isoDate } from "../lib/dates.js";
 import { resolveAccountStrict, resolveTagStrict } from "../lib/resolve.js";
-import { serverVersionWarning } from "../lib/format.js";
+import { serverVersionWarning, tagTitles } from "../lib/format.js";
 import { notSyncedError, toolError, toolText } from "../lib/result.js";
 
 export function registerCreateTools(server: McpServer, state: ZenState) {
@@ -196,7 +196,7 @@ export function registerCreateTools(server: McpServer, state: ZenState) {
         const currency = instr?.shortTitle ?? "";
 
         return toolText(
-          `Income added:\n- Amount: ${amount} ${currency}\n- Account: ${acc.title}\n- Date: ${date}\n- ID: ${transaction.id}${serverVersionWarning(state, transaction)}`
+          `Income added:\n- Amount: ${amount} ${currency}\n- Account: ${acc.title}\n- Date: ${date}\n- Category: ${tagIds ? tagTitles(state, tagIds) : "uncategorized"}${payee ? `\n- Payee: ${payee}` : ""}${comment ? `\n- Comment: ${comment}` : ""}\n- ID: ${transaction.id}${serverVersionWarning(state, transaction)}`
         );
       } catch (error) {
         return toolError(`Failed to add income: ${error instanceof Error ? error.message : String(error)}`);
