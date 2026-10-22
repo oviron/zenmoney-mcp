@@ -7,6 +7,7 @@ import { registerCategoryTools } from "./tools/categories.js";
 import { registerTransactionTools } from "./tools/transactions.js";
 import { registerSuggestTools } from "./tools/suggest.js";
 import { syncBeforeEachTool } from "./lib/fresh.js";
+import { registerSummaryTools } from "./tools/summaries.js";
 
 export function createServer(api: ZenMoneyAPI, state: ZenState) {
   const server = new McpServer({
@@ -20,6 +21,7 @@ export function createServer(api: ZenMoneyAPI, state: ZenState) {
   registerCategoryTools(server, state);
   registerTransactionTools(server, state);
   registerSuggestTools(server, api, state);
+  registerSummaryTools(server, state);
 
   return server;
 }
