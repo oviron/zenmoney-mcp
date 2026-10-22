@@ -202,6 +202,23 @@ describe("get_budget", () => {
     expect(text).toContain("This month, in the budget: spent 78.00 USD, received 0.00 USD");
   });
 
+  it("leaves planned operations of excluded categories out of an unlocked total plan", async () => {
+    const { state, call } = await setup(
+      [budget({ tag: TOTAL_BUDGET_TAG, outcome: 100, income: 0 })],
+      [
+        marker({ id: "food", date: "2026-03-20", outcome: 40, tag: ["tag-food"] }),
+        marker({ id: "cafe", date: "2026-03-21", outcome: 15, tag: ["tag-restaurants"] }),
+        marker({ id: "pay", date: "2026-03-25", outcome: 0, income: 900, tag: ["tag-salary"] }),
+        marker({ id: "bonus", date: "2026-03-26", outcome: 0, income: 50, tag: null }),
+      ]
+    );
+    state.tags = state.tags.map((t) =>
+      t.id === "tag-food" ? { ...t, budgetOutcome: false } : t.id === "tag-salary" ? { ...t, budgetIncome: false } : t);
+    const text = getTextContent(await call("get_budget", { month: "2026-03" }));
+    expect(text).toContain("- All categories: plan 115.00 USD (100.00 USD set + 15.00 USD planned operations) | spent 78.00 USD");
+    expect(text).toContain("Income:\n- All categories: plan 50.00 USD (50.00 USD planned operations) | received 0.00 USD");
+  });
+
   it("rejects a malformed month", async () => {
     const { call } = await setup();
     const result = await call("get_budget", { month: "2026-13" });
