@@ -19,6 +19,17 @@ type Summary = {
   count: number;
 };
 
+const summarySchema = z.object({
+  type: z.enum(["expenses", "income"]),
+  groups: z.array(z.object({
+    title: z.string(), amount: z.number(), count: z.number().int().nonnegative(),
+    share: z.number().describe("Percentage of the section total, rounded as in the text"),
+    originalAmounts: z.array(z.object({ amount: z.number(), currency: z.string() }))
+      .optional().describe("Original currency totals, present only for groups with currency conversion"),
+  })),
+  total: z.number(), count: z.number().int().nonnegative(),
+});
+
 export function registerSummaryTools(server: McpServer, state: ZenState) {
   server.registerTool(
     "summarize_transactions",
@@ -40,6 +51,12 @@ export function registerSummaryTools(server: McpServer, state: ZenState) {
           .describe("Expenses, income, or separate totals for both with net income minus expenses."),
         account: z.string().optional().describe("Filter by account name or UUID."),
         category: z.string().optional().describe("Filter by category name or UUID, including all subcategories."),
+      },
+      outputSchema: {
+        startDate: isoDate, endDate: isoDate,
+        currency: z.string().describe("Main currency shortTitle; amounts use current exchange rates"),
+        sections: z.array(summarySchema),
+        net: z.number().optional().describe("Income minus expenses, present when both sections are displayed"),
       },
       annotations: {
         readOnlyHint: true,
@@ -148,14 +165,25 @@ export function registerSummaryTools(server: McpServer, state: ZenState) {
       }
 
       const header = `Transaction summary | ${lowerBound} to ${upperBound} | ${base.shortTitle} (current exchange rates)`;
+      const structuredContent: { startDate: string; endDate: string; currency: string; sections: z.infer<typeof summarySchema>[]; net?: number } = {
+        startDate: lowerBound, endDate: upperBound, currency: base.shortTitle, sections: [],
+      };
       if (expenses.count + income.count === 0) {
-        return toolText(`${header}\n\nNo transactions found in the given period matching these filters.`);
+        return { ...toolText(`${header}\n\nNo transactions found in the given period matching these filters.`), structuredContent };
       }
       const sections: string[] = [header];
-      if (type !== "income") sections.push(formatSummary("expenses", expenses, base));
-      if (type !== "expense") sections.push(formatSummary("income", income, base));
-      if (type === "both") sections.push(`Net: ${(income.amount - expenses.amount).toFixed(2)} ${base.shortTitle}`);
-      return toolText(sections.join("\n\n"));
+      const append = (label: "expenses" | "income", summary: Summary) => {
+        const section = formatSummary(label, summary, base);
+        sections.push(section.text);
+        structuredContent.sections.push(section.data);
+      };
+      if (type !== "income") append("expenses", expenses);
+      if (type !== "expense") append("income", income);
+      if (type === "both") {
+        structuredContent.net = Number((income.amount - expenses.amount).toFixed(2));
+        sections.push(`Net: ${(income.amount - expenses.amount).toFixed(2)} ${base.shortTitle}`);
+      }
+      return { ...toolText(sections.join("\n\n")), structuredContent };
     }
   );
 }
@@ -173,7 +201,8 @@ function categoryPath(id: string, tags: Map<string, Tag>): string[] {
   return path;
 }
 
-function formatSummary(label: string, summary: Summary, base: Instrument): string {
+function formatSummary(label: "expenses" | "income", summary: Summary, base: Instrument) {
+  const groups: z.infer<typeof summarySchema>["groups"] = [];
   const lines = [...summary.groups.values()]
     .sort((a, b) => b.amount - a.amount || a.title.localeCompare(b.title))
     .map((group) => {
@@ -182,10 +211,17 @@ function formatSummary(label: string, summary: Summary, base: Instrument): strin
         ? ` | original: ${originals.map(([instrument, amount]) => `${amount.toFixed(2)} ${instrument.shortTitle}`).join(", ")}`
         : "";
       const share = summary.amount === 0 ? 0 : group.amount / summary.amount * 100;
+      groups.push({
+        title: group.title, amount: Number(group.amount.toFixed(2)), count: group.count, share: Number(share.toFixed(2)),
+        ...(sourceAmounts ? { originalAmounts: originals.map(([instrument, amount]) => ({ amount: Number(amount.toFixed(2)), currency: instrument.shortTitle })) } : {}),
+      });
       return `- ${group.title}: ${group.amount.toFixed(2)} ${base.shortTitle} | ${share.toFixed(2)}% | ${transactionCount(group.count)}${sourceAmounts}`;
     });
   lines.push(`Total ${label}: ${summary.amount.toFixed(2)} ${base.shortTitle} | ${transactionCount(summary.count)}`);
-  return `${label === "expenses" ? "Expenses" : "Income"}:\n${lines.join("\n")}`;
+  return {
+    text: `${label === "expenses" ? "Expenses" : "Income"}:\n${lines.join("\n")}`,
+    data: { type: label, groups, total: Number(summary.amount.toFixed(2)), count: summary.count },
+  };
 }
 
 function transactionCount(count: number): string {

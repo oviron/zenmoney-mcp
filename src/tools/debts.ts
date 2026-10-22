@@ -12,6 +12,13 @@ import { toolError, toolText } from "../lib/result.js";
 
 type Balance = { units: bigint; scale: number };
 
+const debtSchema = z.object({
+  counterparty: z.string(), amount: z.number().nonnegative(),
+  currency: z.string().nullable().describe("Original currency shortTitle, or null when unknown"),
+  instrumentId: z.string().optional().describe("Fallback instrument id shown when its currency is unknown"),
+  direction: z.enum(["owedToYou", "youOwe", "settled"]).describe("Who owes the absolute amount"),
+});
+
 function addAmount(balance: Balance, amount: number): void {
   const [decimal, exponent = "0"] = amount.toString().split("e");
   const [whole, fraction = ""] = decimal.split(".");
@@ -120,6 +127,7 @@ export function registerDebtTools(server: McpServer, state: ZenState) {
         counterparty: z.string().optional().describe("Filter counterparty titles by case-insensitive substring"),
         include_settled: z.boolean().optional().default(false).describe("Include zero balances (settled debts)"),
       },
+      outputSchema: { debts: z.array(debtSchema) },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ counterparty, include_settled }) => {
@@ -145,17 +153,24 @@ export function registerDebtTools(server: McpServer, state: ZenState) {
       }
 
       const lines: string[] = [];
+      const debts: z.infer<typeof debtSchema>[] = [];
       for (const group of [...groups.values()].sort((a, b) => a.title.localeCompare(b.title))) {
         for (const [instrument, balance] of [...group.currencies].sort(([a], [b]) => a - b)) {
           if (balance.units === 0n && !include_settled) continue;
-          const currency = currencyOf(state, instrument) || `instrument ${instrument}`;
+          const code = currencyOf(state, instrument);
+          const currency = code || `instrument ${instrument}`;
           const value = balanceAmount(balance);
+          debts.push({
+            counterparty: group.title, amount: Number(value), currency: code || null,
+            ...(!code ? { instrumentId: String(instrument) } : {}),
+            direction: balance.units > 0n ? "owedToYou" : balance.units < 0n ? "youOwe" : "settled",
+          });
           const status = balance.units > 0n ? `owes you ${value} ${currency}`
             : balance.units < 0n ? `you owe ${value} ${currency}` : `settled (0 ${currency})`;
           lines.push(`- ${group.title}: ${status}`);
         }
       }
-      return toolText(lines.length ? `Debt balances (original currencies; no conversion):\n${lines.join("\n")}` : "No debt balances match the filters.");
+      return { ...toolText(lines.length ? `Debt balances (original currencies; no conversion):\n${lines.join("\n")}` : "No debt balances match the filters."), structuredContent: { debts } };
     }
   );
 }

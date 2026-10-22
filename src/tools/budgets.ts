@@ -10,6 +10,15 @@ const month = z
   .string()
   .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Month must be in YYYY-MM format");
 
+const budgetRowSchema = z.object({
+  type: z.enum(["expense", "income"]), title: z.string(),
+  set: z.number().describe("Stored plan amount"),
+  planned: z.number().describe("Planned operations added to an unlocked plan; zero for a fixed plan"),
+  effective: z.number().describe("Set plus planned"), actual: z.number(),
+  remaining: z.number().describe("Effective plan minus actual; negative means over plan"),
+  subcategoryPlans: z.number().optional().describe("Separate child plans, only when noted in the text"),
+});
+
 type Fact = { outcome: number; income: number };
 type Operation = Pick<Transaction | ReminderMarker, "id" | "tag" | "income" | "outcome" | "incomeAccount" | "outcomeAccount" | "incomeInstrument" | "outcomeInstrument">;
 
@@ -22,6 +31,14 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
       inputSchema: {
         month: month.optional().describe("Month as YYYY-MM. Defaults to the current month."),
         category: z.string().optional().describe("Only this category (name or UUID) and its subcategories."),
+      },
+      outputSchema: {
+        month, currency: z.string().describe("Main currency shortTitle; amounts use current exchange rates"),
+        rows: z.array(budgetRowSchema),
+        totals: z.object({
+          title: z.string().describe("Scope of the month's actual totals, including any category filter"),
+          spent: z.number(), received: z.number(),
+        }),
       },
       annotations: {
         readOnlyHint: true,
@@ -123,6 +140,7 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
       rows.sort((a, b) => order(a).localeCompare(order(b)));
 
       const money = (n: number) => `${n.toFixed(2)} ${base.shortTitle}`;
+      const budgetRows: z.infer<typeof budgetRowSchema>[] = [];
       const section = (side: keyof Fact, title: string, verb: string) => {
         const lines = rows
           .filter((b) => effective(b, side) !== 0)
@@ -141,6 +159,12 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
               : 0;
             const childNote = children !== 0 ? ` | subcategory plans ${money(children)}` : "";
             const parts = scheduled !== 0 ? ` (${set !== 0 ? `${money(set)} set + ` : ""}${money(scheduled)} planned operations)` : "";
+            budgetRows.push({
+              type: side === "outcome" ? "expense" : "income", title: label(b),
+              set: Number(set.toFixed(2)), planned: Number(scheduled.toFixed(2)), effective: Number((set + scheduled).toFixed(2)),
+              actual: Number(fact.toFixed(2)), remaining: Number(rest.toFixed(2)),
+              ...(children !== 0 ? { subcategoryPlans: Number(children.toFixed(2)) } : {}),
+            });
             return `- ${label(b)}: plan ${money(set + scheduled)}${parts} | ${verb} ${money(fact)} | ${status}${childNote}`;
           });
         return lines.length > 0 ? `${title}:\n${lines.join("\n")}` : undefined;
@@ -152,10 +176,17 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
       const totals = `${categoryId ? `${tags.get(categoryId)!.title} this month` : "This month, in the budget"}: spent ${money(scope.outcome)}, received ${money(scope.income)}`;
       const sections = [section("outcome", "Expenses", "spent"), section("income", "Income", "received")]
         .filter((s): s is string => s !== undefined);
+      const structuredContent = {
+        month: monthKey, currency: base.shortTitle, rows: budgetRows,
+        totals: {
+          title: categoryId ? `${tags.get(categoryId)!.title} this month` : "This month, in the budget",
+          spent: Number(scope.outcome.toFixed(2)), received: Number(scope.income.toFixed(2)),
+        },
+      };
       if (sections.length === 0) {
-        return toolText(`${header}\n\nNo budget set for ${monthKey}${categoryId ? " in this category" : ""}.\n${totals}`);
+        return { ...toolText(`${header}\n\nNo budget set for ${monthKey}${categoryId ? " in this category" : ""}.\n${totals}`), structuredContent };
       }
-      return toolText([header, ...sections, totals].join("\n\n"));
+      return { ...toolText([header, ...sections, totals].join("\n\n")), structuredContent };
     }
   );
 
