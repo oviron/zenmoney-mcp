@@ -61,6 +61,9 @@
     { "name": "list_upcoming", "description": "List planned operations for the next calendar days, sorted by date." },
     { "name": "add_reminder", "description": "Plan an expense, income or transfer and create its dated markers." },
     { "name": "delete_reminder", "description": "Delete a series and its future planned markers, with confirmation." },
+    { "name": "summarize_transactions", "description": "Totals by category, payee, account or month in the main currency." },
+    { "name": "get_budget", "description": "A month's budget against actual expenses and income." },
+    { "name": "set_budget", "description": "Set or remove a month's planned expenses or income." },
     { "name": "suggest_category", "description": "Suggest a category for a given payee." }
   ]
 }
