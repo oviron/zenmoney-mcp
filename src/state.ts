@@ -14,7 +14,7 @@ import {
   type DiffResponse,
 } from "./api.js";
 
-type WriteChanges = Pick<DiffRequest, "transaction" | "reminder" | "reminderMarker" | "deletion">;
+type WriteChanges = Pick<DiffRequest, "transaction" | "reminder" | "reminderMarker" | "deletion" | "tag" | "account">;
 
 export class ZenState {
   private api: ZenMoneyAPI;
@@ -329,6 +329,14 @@ export class ZenState {
     this.mergeEntities("reminderMarkers", markers, (m) => m.id);
   }
 
+  upsertTag(tag: Tag): void {
+    this.mergeEntities("tags", [tag], (t) => t.id);
+  }
+
+  upsertAccount(account: Account): void {
+    this.mergeEntities("accounts", [account], (a) => a.id);
+  }
+
   getTagHierarchy(): { parent: Tag; children: Tag[] }[] {
     const parentTags = this.tags.filter((t) => !t.parent);
     return parentTags.map((parent) => ({
@@ -354,6 +362,8 @@ function uncertainWriteMessage(sent: WriteChanges, cause: Error): string {
   const ids = [
     ...(sent.transaction ?? []).map((t) => t.id),
     ...(sent.reminder ?? []).map((r) => r.id),
+    ...(sent.tag ?? []).map((t) => t.id),
+    ...(sent.account ?? []).map((a) => a.id),
     ...(sent.deletion ?? []).filter((d) => d.object !== "reminderMarker").map((d) => d.id),
   ];
   // A series sends hundreds of markers; their count says enough
@@ -361,12 +371,18 @@ function uncertainWriteMessage(sent: WriteChanges, cause: Error): string {
     (sent.reminderMarker?.length ?? 0) +
     (sent.deletion ?? []).filter((d) => d.object === "reminderMarker").length;
   if (markers > 0) ids.push(`${markers} reminder marker${markers > 1 ? "s" : ""}`);
+  const lists = new Set<string>();
+  if (sent.transaction?.length) lists.add("list_transactions");
+  if (sent.tag?.length) lists.add("list_categories");
+  if (sent.account?.length) lists.add("list_accounts (include_archived: true)");
+  if (sent.reminder?.length || sent.reminderMarker?.length) lists.add("list_reminders (include_finished=true) and list_upcoming");
+  for (const d of sent.deletion ?? []) {
+    lists.add(d.object === "tag" ? "list_categories" : d.object === "account" ? "list_accounts (include_archived: true)"
+      : d.object === "reminder" || d.object === "reminderMarker" ? "list_reminders (include_finished=true) and list_upcoming" : "list_transactions");
+  }
   return (
     `ZenMoney did not confirm the change (${cause.message}), so it may or may not have been saved. ` +
     `Affected id${ids.length > 1 ? "s" : ""}: ${ids.join(", ")}. ` +
-    "Do not repeat the call, which would write it again under a new id: run sync_data, then look the id up with " +
-    (sent.reminder || sent.reminderMarker || sent.deletion?.some((d) => d.object === "reminder" || d.object === "reminderMarker")
-      ? "list_reminders (include_finished=true) and list_upcoming."
-      : "list_transactions.")
+    `Do not repeat the call, which would write it again under a new id: run sync_data, then look the id up with ${[...lists].join(" / ") || "list_transactions"}.`
   );
 }

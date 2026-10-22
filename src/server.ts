@@ -10,6 +10,7 @@ import { syncBeforeEachTool } from "./lib/fresh.js";
 import { registerSummaryTools } from "./tools/summaries.js";
 import { registerDebtTools } from "./tools/debts.js";
 import { registerReminderTools } from "./tools/reminders.js";
+import { registerCatalogTools } from "./tools/catalogs.js";
 
 export function createServer(
   api: ZenMoneyAPI,
@@ -26,6 +27,7 @@ export function createServer(
   registerSyncTools(server, state);
   registerAccountTools(server, state);
   registerCategoryTools(server, state);
+  registerCatalogTools(server, state);
   registerTransactionTools(server, state);
   registerDebtTools(server, state);
   registerSuggestTools(server, api, state);

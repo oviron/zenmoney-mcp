@@ -4,7 +4,7 @@
   "display_name": "ZenMoney",
   "version": "0.4.1",
   "description": "Access ZenMoney personal finance data — accounts, categories, transactions, transfers.",
-  "long_description": "MCP server for ZenMoney. Sync accounts, browse categories and merchants, list/filter transactions over arbitrary date ranges, add expenses/income, transfer between accounts (including cross-currency), edit, delete or restore existing transactions (one or many at once), and auto-suggest categories for known payees.",
+  "long_description": "MCP server for ZenMoney. Sync data, browse categories and merchants, create and edit categories and simple accounts, list/filter transactions over arbitrary date ranges, add expenses/income, transfer between accounts (including cross-currency), edit, delete or restore existing transactions (one or many at once), and auto-suggest categories for known payees.",
   "author": {
     "name": "Artem Tarasov",
     "url": "https://github.com/artarasov"
@@ -47,6 +47,10 @@
     { "name": "sync_data", "description": "Refresh data from ZenMoney now; other tools sync on their own." },
     { "name": "list_accounts", "description": "List wallets, cards, and cash accounts." },
     { "name": "list_categories", "description": "List expense/income categories with hierarchy." },
+    { "name": "add_category", "description": "Create a category, optionally under a top-level parent; budget flags default to false." },
+    { "name": "update_category", "description": "Change a category's title, parent, visibility, budget flags or color." },
+    { "name": "add_account", "description": "Create a cash, ccard or checking account with an initial balance." },
+    { "name": "update_account", "description": "Change account metadata or a card credit limit; adjust balances with a correction transaction." },
     { "name": "list_merchants", "description": "List known merchants/payees." },
     { "name": "list_transactions", "description": "List and filter transactions (supports arbitrary date ranges)." },
     { "name": "add_expense", "description": "Add an expense transaction." },
