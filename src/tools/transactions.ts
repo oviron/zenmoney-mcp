@@ -443,6 +443,8 @@ export function registerTransactionTools(
         .describe("Filter by category name or UUID"),
       limit: z
         .number()
+        .int()
+        .positive()
         .optional()
         .default(50)
         .describe("Max number of transactions to return (default 50)"),
@@ -506,10 +508,22 @@ export function registerTransactionTools(
         );
       }
 
-      filtered.sort((a, b) => (b.date > a.date ? 1 : -1));
+      // Newest first; within a day, the most recently created first, so the
+      // order is stable across calls and a cut by limit is predictable.
+      filtered.sort(
+        (a, b) =>
+          b.date.localeCompare(a.date) ||
+          b.created - a.created ||
+          a.id.localeCompare(b.id)
+      );
+      const total = filtered.length;
       filtered = filtered.slice(0, limit);
 
       const lines = filtered.map((t) => formatTransactionLine(state, t));
+      const count =
+        total > lines.length
+          ? `${lines.length} of ${total}, raise limit to see the rest`
+          : `${lines.length}`;
 
       return {
         content: [
@@ -517,7 +531,7 @@ export function registerTransactionTools(
             type: "text" as const,
             text:
               lines.length > 0
-                ? `Transactions (${lines.length}):\n\n${lines.join("\n")}`
+                ? `Transactions (${count}):\n\n${lines.join("\n")}`
                 : "No transactions found in the given period.",
           },
         ],
