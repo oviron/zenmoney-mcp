@@ -4,7 +4,7 @@
   "display_name": "ZenMoney",
   "version": "0.4.1",
   "description": "Access ZenMoney personal finance data — accounts, categories, transactions, transfers.",
-  "long_description": "MCP server for ZenMoney. Sync accounts, browse categories and merchants, list/filter transactions over arbitrary date ranges, add expenses/income, transfer between accounts (including cross-currency), edit or delete existing transactions (one or many at once), and auto-suggest categories for known payees.",
+  "long_description": "MCP server for ZenMoney. Sync accounts, browse categories and merchants, list/filter transactions over arbitrary date ranges, add expenses/income, transfer between accounts (including cross-currency), edit, delete or restore existing transactions (one or many at once), and auto-suggest categories for known payees.",
   "author": {
     "name": "Artem Tarasov",
     "url": "https://github.com/artarasov"
@@ -53,7 +53,8 @@
     { "name": "add_income", "description": "Add an income transaction." },
     { "name": "add_transfer", "description": "Transfer between accounts, including cross-currency." },
     { "name": "update_transaction", "description": "Change an existing transaction: category, amount, date, payee, comment or account." },
-    { "name": "delete_transaction", "description": "Delete one or more transactions by id. Cannot be undone." },
+    { "name": "delete_transaction", "description": "Delete one or more transactions by id, as the ZenMoney apps do." },
+    { "name": "restore_transaction", "description": "Bring deleted transactions back as copies with new ids." },
     { "name": "suggest_category", "description": "Suggest a category for a given payee." }
   ]
 }

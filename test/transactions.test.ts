@@ -1790,12 +1790,12 @@ describe("delete_transaction", () => {
     date: "2026-03-01",
   });
 
-  function sentDeletion() {
+  function sentTransactions() {
     const call = vi.mocked(api.diff).mock.calls.at(-1)![0] as any;
-    return call.deletion;
+    return call.transaction;
   }
 
-  it("should send a deletion and drop the transaction locally", async () => {
+  it("should mark the transaction deleted and move it out of the live list", async () => {
     await setup({ transactions: [EXPENSE, INCOME] });
 
     const result = await callTool("delete_transaction", { id: "tx-expense", confirm: true });
@@ -1804,12 +1804,14 @@ describe("delete_transaction", () => {
     expect(result.isError).toBeFalsy();
     expect(text).toContain("Transaction deleted");
     expect(text).toContain("id: tx-expense");
-    expect(text).toContain("cannot be undone");
-    expect(sentDeletion()).toEqual([
-      { id: "tx-expense", object: "transaction", stamp: expect.any(Number), user: 1 },
+    expect(text).toContain("restore_transaction brings it back");
+    expect(sentTransactions()).toEqual([
+      { ...EXPENSE, deleted: true, changed: expect.any(Number) },
     ]);
-    expect(vi.mocked(api.diff).mock.calls.at(-1)![0]).not.toHaveProperty("transaction");
+    expect(sentTransactions()[0].changed).toBeGreaterThan(EXPENSE.changed);
+    expect(vi.mocked(api.diff).mock.calls.at(-1)![0]).not.toHaveProperty("deletion");
     expect(state.findTransaction("tx-expense")).toBeUndefined();
+    expect(state.findDeletedTransaction("tx-expense")).toMatchObject({ deleted: true });
     expect(state.findTransaction("tx-income")).toBeDefined();
     expect(state.serverTimestamp).toBe(1700000001);
   });
@@ -1837,7 +1839,10 @@ describe("delete_transaction", () => {
 
     expect(getTextContent(result)).toContain("2 transactions deleted");
     expect(api.diff).toHaveBeenCalledTimes(1);
-    expect(sentDeletion().map((d: any) => d.id)).toEqual(["tx-expense", "tx-income"]);
+    expect(sentTransactions().map((t: any) => [t.id, t.deleted])).toEqual([
+      ["tx-expense", true],
+      ["tx-income", true],
+    ]);
     expect(state.transactions).toHaveLength(0);
   });
 

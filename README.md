@@ -17,7 +17,8 @@ Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Bra
 | `add_income` | Add income with the same category, original-currency, merchant and UUID `id` options as `add_expense` |
 | `add_transfer` | Transfer between accounts, including cross-currency; `amount` aliases `outcome_amount` (must match if both are given); optional UUID `id` prevents duplicate retries |
 | `update_transaction` | Change category, amounts, date, payee, comment or accounts; a change of account currency requires a new amount for that side and clears its original amount/currency; a single-account operation cannot have both income and outcome |
-| `delete_transaction` | Delete one or more transactions by id (cannot be undone, requires `confirm: true`) |
+| `delete_transaction` | Delete one or more transactions by id, as the ZenMoney apps do (requires `confirm: true`) |
+| `restore_transaction` | Bring deleted transactions back as copies with new ids |
 | `summarize_transactions` | Totals by category, payee, account or month in the main currency |
 | `suggest_category` | Get auto-suggested category for a payee |
 
@@ -25,7 +26,7 @@ Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Bra
 
 Each item is one `patch/*` branch off upstream `main`.
 
-- `delete-transaction`: new `delete_transaction` tool. Takes one id or a list, needs `confirm: true`, and sends nothing if any id is unknown. ZenMoney ignores attempts to un-delete, so a deleted operation comes back only as a new transaction.
+- `delete-transaction`: new `delete_transaction` tool. Takes one id or a list, needs `confirm: true`, and sends nothing if any id is unknown. Deletion marks the transaction deleted, the way the ZenMoney apps do. ZenMoney ignores attempts to un-delete, so `restore_transaction` brings a deleted one back as a copy with a new id and skips one that is already back.
 - `strict-names`: account and category names resolve by id, then exact title, then a unique substring. A name that still matches several entities is an error listing the candidates, and an active account wins over an archived one with the same title. Unknown categories and unknown `list_transactions` filters are errors instead of being dropped.
 - `apply-write-response`: writes apply the server's response (recomputed balances, changes from other devices) instead of only taking its `serverTimestamp`, which hid those changes until a full sync. Confirmations describe what the server kept and warn when it kept a different version.
 - `serialize-diff` (on top of `apply-write-response`): `/v8/diff/` requests run one at a time, so a slower response can't move `serverTimestamp` back when a client calls tools in parallel, and two parallel edits of one transaction don't undo each other.
@@ -132,7 +133,7 @@ Once configured, start a conversation and ask your AI client to:
 4. **Transfer** — "Transfer 1000 USD from Checking to Euro Card, received 920 EUR"
 5. **Fix mistakes** — "Recategorize yesterday's Amazon expense to Household", "Change the comment on that 500 RUB coffee", "Delete the duplicate taxi ride from Monday"
 
-`list_transactions` prints each transaction's id, and `update_transaction` and `delete_transaction` take one id or a list of them — so a whole batch can be recategorized or removed in a single call. ZenMoney does not restore deleted transactions, so a deleted one can only be added back as a new transaction.
+`list_transactions` prints each transaction's id, and `update_transaction` and `delete_transaction` take one id or a list of them — so a whole batch can be recategorized or removed in a single call. ZenMoney does not un-delete transactions, so `restore_transaction` adds a deleted one back as a copy with a new id.
 
 For `add_expense` and `add_income`, `amount` is in the account currency. Pass
 `original_amount` and `original_currency` together to also record the original
