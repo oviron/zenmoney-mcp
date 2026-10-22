@@ -124,6 +124,14 @@ describe("get_budget", () => {
     expect(text).toContain("No budget set for 2026-04.");
   });
 
+  it("refuses to answer when an account of a transaction is missing", async () => {
+    const { state, call } = await setup();
+    state.accounts = state.accounts.filter((a) => a.id !== "acc-euro");
+    const result = await call("get_budget", { month: "2026-03" });
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("account acc-euro of transaction t3 is missing");
+  });
+
   it("rejects a malformed month", async () => {
     const { call } = await setup();
     const result = await call("get_budget", { month: "2026-13" });
@@ -193,6 +201,48 @@ describe("set_budget", () => {
     const text = getTextContent(await call("set_budget", { month: "2026-03", category: "Food", outcome: 5 }));
     expect(text).toContain("Affected id: budget 2026-03-01 tag-food");
     expect(text).toContain("setting it again is safe");
+  });
+
+  it("catches up before the next write after an unknown outcome", async () => {
+    const { api, state, call } = await setup();
+    const { ZenMoneyError } = await import("../src/api.js");
+    vi.mocked(api.diff).mockRejectedValueOnce(new ZenMoneyError("timed out", true));
+    const first = call("set_budget", { month: "2026-03", category: "Food", outcome: 500 });
+    // Queued behind the lost write, before anyone could sync
+    const second = call("set_budget", { month: "2026-03", category: "Food", income: 50 });
+    // The lost write did land
+    vi.mocked(api.diff).mockResolvedValueOnce(
+      empty(1700000002, { budget: [budget({ tag: "tag-food", outcome: 500, outcomeLock: true, changed: 3000 })] })
+    );
+    expect((await first).isError).toBe(true);
+    expect((await second).isError).toBeFalsy();
+    const calls = vi.mocked(api.diff).mock.calls;
+    expect(calls[2][0].budget).toBeUndefined();
+    expect(calls[3][0].budget![0]).toMatchObject({ outcome: 500, income: 50 });
+    expect(state.age).toBeLessThan(1000);
+  });
+
+  it("refuses when the main currency changed meanwhile", async () => {
+    const { api, state, call } = await setup();
+    const { USER } = await import("./fixtures.js");
+    let answer!: (resp: DiffResponse) => void;
+    vi.mocked(api.diff).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    const sync = state.sync();
+    const pending = call("set_budget", { month: "2026-03", category: "Food", outcome: 5 });
+    await vi.waitFor(() => expect(api.diff).toHaveBeenCalledTimes(2));
+    answer(empty(1700000002, { user: [{ ...USER, currency: 2 }] }));
+    await sync;
+    expect(getTextContent(await pending)).toContain("Your main currency changed in ZenMoney meanwhile");
+    expect(api.diff).toHaveBeenCalledTimes(2);
+  });
+
+  it("warns when the server kept a different lock", async () => {
+    const { api, call } = await setup();
+    vi.mocked(api.diff).mockImplementationOnce(async (req) =>
+      empty(1700000002, { budget: [{ ...req.budget![0], outcomeLock: false, changed: 9_999_999_999 }] })
+    );
+    const text = getTextContent(await call("set_budget", { month: "2026-03", category: "Food", outcome: 200 }));
+    expect(text).toContain("Warning: the server kept a different version");
   });
 
   it("keeps the other side a write queued ahead set", async () => {

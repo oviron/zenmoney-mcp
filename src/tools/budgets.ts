@@ -55,7 +55,10 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
           : tx.income > 0 && tx.outcome === 0 ? "income" : undefined;
         if (!side) continue;
         const account = state.accounts.find((a) => a.id === tx.outcomeAccount);
-        if (!account || account.type === "debt" || account.inBalance === false) continue;
+        if (!account) {
+          return toolError(`Cannot compute the budget: account ${tx.outcomeAccount} of transaction ${tx.id} is missing. Run sync_data first.`);
+        }
+        if (account.type === "debt" || account.inBalance === false) continue;
         const instrument = state.getInstrument(side === "outcome" ? tx.outcomeInstrument : tx.incomeInstrument);
         if (!instrument || !(instrument.rate > 0)) {
           return toolError(`Cannot compute the budget: currency of transaction ${tx.id} is missing or has no rate.`);
@@ -162,6 +165,10 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
         await state.write(
           () => {
             if (tag !== TOTAL_BUDGET_TAG) checkStillValid(state, [], [tag]);
+            const current = mainCurrency(state);
+            if (typeof current === "string" || current.id !== base.id || state.getUser()?.id !== user.id) {
+              throw new Error("Your main currency changed in ZenMoney meanwhile. Nothing was saved; check the amount and try again.");
+            }
             // Read at the write's turn, so the side not passed keeps the
             // value a write queued ahead left
             before = state.findBudget(date, tag);
@@ -190,7 +197,7 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
         const was = before?.[side] ?? 0;
         return `- ${name}: ${saved[side] === 0 ? "none" : money(saved[side])}${was !== saved[side] ? ` (was ${was === 0 ? "none" : money(was)})` : ""}`;
       };
-      const kept = saved.outcome !== sent.outcome || saved.income !== sent.income
+      const kept = (["outcome", "income", "outcomeLock", "incomeLock"] as const).some((k) => saved[k] !== sent[k])
         ? "\n\nWarning: the server kept a different version (changed elsewhere meanwhile)."
         : "";
       return toolText(`Budget for ${title}, ${monthKey}:\n${line("outcome", "Expenses")}\n${line("income", "Income")}${kept}`);

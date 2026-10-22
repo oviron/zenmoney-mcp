@@ -38,6 +38,12 @@ export class ZenState {
   /** When the state last caught up with the server (Date.now()). */
   private lastSync = 0;
   private refreshing: Promise<void> | undefined;
+  /**
+   * A write went out but its outcome is unknown, so the cache may lack what
+   * the server now holds. The next write catches up before building its
+   * changes, or it would send stale fields over the ones that landed.
+   */
+  private unconfirmed = false;
   /** How old the state may get before a tool call syncs it first. */
   readonly syncTtlMs: number;
 
@@ -99,6 +105,7 @@ export class ZenState {
       if (forceFull) this.clear();
       this.applyDiff(resp);
       this.lastSync = Date.now();
+      this.unconfirmed = false;
       return resp;
     });
     this.synced = true;
@@ -125,6 +132,15 @@ export class ZenState {
     beforeApply?: () => void
   ): Promise<DiffResponse> {
     return this.serialize(async () => {
+      if (this.unconfirmed) {
+        const caught = await this.api.diff({
+          currentClientTimestamp: Math.floor(Date.now() / 1000),
+          serverTimestamp: this.serverTimestamp,
+        });
+        this.applyDiff(caught);
+        this.lastSync = Date.now();
+        this.unconfirmed = false;
+      }
       const sent = typeof changes === "function" ? changes() : changes;
       let resp: DiffResponse;
       try {
@@ -135,6 +151,9 @@ export class ZenState {
         });
       } catch (error) {
         if (error instanceof ZenMoneyError && error.uncertain) {
+          this.unconfirmed = true;
+          // Read-only tools sync before answering, too
+          this.lastSync = 0;
           throw new ZenMoneyError(uncertainWriteMessage(sent, error), true);
         }
         throw error;
