@@ -4,7 +4,7 @@ import type { ZenState } from "../state.js";
 import { isoDate, localDate } from "../lib/dates.js";
 import { resolveAccountStrict, resolveTagStrict } from "../lib/resolve.js";
 import { formatTransactionLine, formatProvenance, transactionType } from "../lib/format.js";
-import { notSyncedError, toolError, toolText } from "../lib/result.js";
+import { toolError, toolText } from "../lib/result.js";
 
 export const MAX_TRANSACTION_OUTPUT_LENGTH = 50_000;
 
@@ -13,7 +13,7 @@ export function registerListTools(server: McpServer, state: ZenState) {
     "list_transactions",
     {
       title: "List Transactions",
-      description: "List transactions, newest first, with optional account, category (including descendants by default), text, type, amount, uncategorized and hold filters combined with AND. Defaults to the last 30 days; start_date/end_date select an arbitrary period. Pages use limit/offset and a 50,000-character text cap; truncated responses give the next offset. Sync must be done first.",
+      description: "List transactions, newest first, with optional account, category (including descendants by default), text, type, amount, uncategorized and hold filters combined with AND. Defaults to the last 30 days; start_date/end_date select an arbitrary period. Pages use limit/offset and a 50,000-character text cap; truncated responses give the next offset.",
       inputSchema: {
         days: z
           .number()
@@ -106,9 +106,6 @@ export function registerListTools(server: McpServer, state: ZenState) {
       query, type, min_amount, max_amount, uncategorized, hold,
       limit, offset, show_provenance, show_deleted,
     }) => {
-      if (!state.isSynced) {
-        return notSyncedError();
-      }
       if (min_amount !== undefined && max_amount !== undefined && min_amount > max_amount) {
         return toolError("min_amount must be less than or equal to max_amount.");
       }

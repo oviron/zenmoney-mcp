@@ -6,6 +6,7 @@ import { registerAccountTools } from "./tools/accounts.js";
 import { registerCategoryTools } from "./tools/categories.js";
 import { registerTransactionTools } from "./tools/transactions.js";
 import { registerSuggestTools } from "./tools/suggest.js";
+import { syncBeforeEachTool } from "./lib/fresh.js";
 
 export function createServer(api: ZenMoneyAPI, state: ZenState) {
   const server = new McpServer({
@@ -13,6 +14,7 @@ export function createServer(api: ZenMoneyAPI, state: ZenState) {
     version: "0.4.1-oviron.1",
   });
 
+  syncBeforeEachTool(server, state, ["sync_data"]);
   registerSyncTools(server, state);
   registerAccountTools(server, state);
   registerCategoryTools(server, state);

@@ -57,7 +57,8 @@ describe("sync_data", () => {
       expect.objectContaining({
         serverTimestamp: 0,
         forceFetch: expect.any(Array),
-      })
+      }),
+      { signal: expect.any(AbortSignal) }
     );
   });
 
