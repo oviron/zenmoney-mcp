@@ -1256,3 +1256,57 @@ describe("applying the response to a write", () => {
     expect(state.findTransaction(id)?.outcome).toBe(10);
   });
 });
+
+describe("update_transaction queued behind another exchange", () => {
+  const EXPENSE = makeTransaction({ id: "tx-1", outcome: 50, date: "2026-03-20" });
+
+  // Holds the next /v8/diff/ exchange until released
+  function holdNextExchange() {
+    let release!: (resp: DiffResponse) => void;
+    vi.mocked(api.diff).mockImplementationOnce(
+      () => new Promise((resolve) => (release = resolve))
+    );
+    return (resp: DiffResponse) => release(resp);
+  }
+
+  // A tool call travels through the transport before its handler runs; give
+  // it time to validate against the current state and queue its write
+  const reachQueue = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+  beforeEach(() => setup({ transactions: [EXPENSE] }));
+
+  it("should keep both of two parallel edits to one transaction", async () => {
+    const releaseFirst = holdNextExchange();
+
+    const first = callTool("update_transaction", { id: "tx-1", comment: "checked" });
+    await vi.waitFor(() => expect(api.diff).toHaveBeenCalledTimes(1));
+    const second = callTool("update_transaction", { id: "tx-1", payee: "Cafe" });
+    await reachQueue();
+    releaseFirst(emptyDiff(1700000001));
+    await Promise.all([first, second]);
+
+    const sent = vi.mocked(api.diff).mock.calls[1][0].transaction![0];
+    expect(sent).toMatchObject({ comment: "checked", payee: "Cafe" });
+    expect(state.findTransaction("tx-1")).toMatchObject({ comment: "checked", payee: "Cafe" });
+  });
+
+  it("should not bring back a transaction deleted by the exchange before it", async () => {
+    const releaseSync = holdNextExchange();
+
+    const sync = state.sync();
+    await vi.waitFor(() => expect(api.diff).toHaveBeenCalledTimes(1));
+    const update = callTool("update_transaction", { id: "tx-1", comment: "checked" });
+    await reachQueue();
+    releaseSync({
+      ...emptyDiff(1700000001),
+      deletion: [{ id: "tx-1", object: "transaction", stamp: 1, user: 1 }],
+    });
+    await sync;
+    const result = await update;
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("not found: tx-1");
+    expect(api.diff).toHaveBeenCalledTimes(1);
+    expect(state.findTransaction("tx-1")).toBeUndefined();
+  });
+});
