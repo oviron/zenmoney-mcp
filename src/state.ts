@@ -7,12 +7,14 @@ import {
   type Company,
   type Instrument,
   type Transaction,
+  type Reminder,
+  type ReminderMarker,
   type User,
   type DiffRequest,
   type DiffResponse,
 } from "./api.js";
 
-type WriteChanges = Pick<DiffRequest, "transaction" | "deletion">;
+type WriteChanges = Pick<DiffRequest, "transaction" | "reminder" | "reminderMarker" | "deletion">;
 
 export class ZenState {
   private api: ZenMoneyAPI;
@@ -23,6 +25,8 @@ export class ZenState {
   companies: Company[] = [];
   instruments: Instrument[] = [];
   transactions: Transaction[] = [];
+  reminders: Reminder[] = [];
+  reminderMarkers: ReminderMarker[] = [];
   users: User[] = [];
   /**
    * Transactions the server reports as deleted. Kept apart from
@@ -85,6 +89,8 @@ export class ZenState {
           "tag",
           "merchant",
           "transaction",
+          "reminder",
+          "reminderMarker",
           "user",
         ];
       }
@@ -169,6 +175,8 @@ export class ZenState {
     this.companies = [];
     this.instruments = [];
     this.transactions = [];
+    this.reminders = [];
+    this.reminderMarkers = [];
     this.deletedTransactions.clear();
     this.users = [];
   }
@@ -188,6 +196,8 @@ export class ZenState {
     this.mergeEntities("companies", resp.company, (e) => e.id);
     this.mergeEntities("users", resp.user, (e) => e.id);
     this.mergeTransactions(resp.transaction);
+    this.mergeEntities("reminders", resp.reminder, (e) => e.id);
+    this.mergeEntities("reminderMarkers", resp.reminderMarker, (e) => e.id);
 
     if (resp.deletion) {
       for (const del of resp.deletion) {
@@ -244,6 +254,12 @@ export class ZenState {
         this.transactions = this.transactions.filter((t) => t.id !== id);
         break;
       }
+      case "reminder":
+        this.reminders = this.reminders.filter((r) => r.id !== id);
+        break;
+      case "reminderMarker":
+        this.reminderMarkers = this.reminderMarkers.filter((m) => m.id !== id);
+        break;
       case "account":
         this.accounts = this.accounts.filter((a) => a.id !== id);
         break;
@@ -305,6 +321,14 @@ export class ZenState {
     }
   }
 
+  upsertReminder(reminder: Reminder): void {
+    this.mergeEntities("reminders", [reminder], (r) => r.id);
+  }
+
+  upsertReminderMarkers(markers: ReminderMarker[]): void {
+    this.mergeEntities("reminderMarkers", markers, (m) => m.id);
+  }
+
   getTagHierarchy(): { parent: Tag; children: Tag[] }[] {
     const parentTags = this.tags.filter((t) => !t.parent);
     return parentTags.map((parent) => ({
@@ -329,11 +353,20 @@ function defaultSyncTtlMs(): number {
 function uncertainWriteMessage(sent: WriteChanges, cause: Error): string {
   const ids = [
     ...(sent.transaction ?? []).map((t) => t.id),
-    ...(sent.deletion ?? []).map((d) => d.id),
+    ...(sent.reminder ?? []).map((r) => r.id),
+    ...(sent.deletion ?? []).filter((d) => d.object !== "reminderMarker").map((d) => d.id),
   ];
+  // A series sends hundreds of markers; their count says enough
+  const markers =
+    (sent.reminderMarker?.length ?? 0) +
+    (sent.deletion ?? []).filter((d) => d.object === "reminderMarker").length;
+  if (markers > 0) ids.push(`${markers} reminder marker${markers > 1 ? "s" : ""}`);
   return (
     `ZenMoney did not confirm the change (${cause.message}), so it may or may not have been saved. ` +
     `Affected id${ids.length > 1 ? "s" : ""}: ${ids.join(", ")}. ` +
-    "Do not repeat the call, which would write it again under a new id: run sync_data, then look the id up with list_transactions."
+    "Do not repeat the call, which would write it again under a new id: run sync_data, then look the id up with " +
+    (sent.reminder || sent.reminderMarker || sent.deletion?.some((d) => d.object === "reminder" || d.object === "reminderMarker")
+      ? "list_reminders (include_finished=true) and list_upcoming."
+      : "list_transactions.")
   );
 }

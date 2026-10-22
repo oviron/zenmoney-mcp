@@ -57,6 +57,10 @@
     { "name": "update_transaction", "description": "Change an existing transaction: category, amount, date, payee, comment or account." },
     { "name": "delete_transaction", "description": "Delete one or more transactions by id, as the ZenMoney apps do." },
     { "name": "restore_transaction", "description": "Bring deleted transactions back as copies with new ids." },
+    { "name": "list_reminders", "description": "List recurring and one-off plans with schedules and next planned dates." },
+    { "name": "list_upcoming", "description": "List planned operations for the next calendar days, sorted by date." },
+    { "name": "add_reminder", "description": "Plan an expense, income or transfer and create its dated markers." },
+    { "name": "delete_reminder", "description": "Delete a series and its future planned markers, with confirmation." },
     { "name": "suggest_category", "description": "Suggest a category for a given payee." }
   ]
 }

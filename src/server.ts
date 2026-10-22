@@ -9,6 +9,7 @@ import { registerSuggestTools } from "./tools/suggest.js";
 import { syncBeforeEachTool } from "./lib/fresh.js";
 import { registerSummaryTools } from "./tools/summaries.js";
 import { registerDebtTools } from "./tools/debts.js";
+import { registerReminderTools } from "./tools/reminders.js";
 
 export function createServer(
   api: ZenMoneyAPI,
@@ -29,6 +30,7 @@ export function createServer(
   registerDebtTools(server, state);
   registerSuggestTools(server, api, state);
   registerSummaryTools(server, state);
+  registerReminderTools(server, state);
 
   return server;
 }
