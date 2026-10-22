@@ -2,7 +2,7 @@
 
 MCP server for [ZenMoney](https://zenmoney.ru) — access your personal finance data from any MCP-compatible AI client (Claude Desktop, Cursor, etc.).
 
-Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Branch `oviron` is upstream `main` plus the `patch/*` branches below, each sent upstream as its own pull request. See [What this fork changes](#what-this-fork-changes).
+Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Branch `oviron` is upstream `main` plus the `patch/*` branches below, each sent upstream as its own pull request. See [What this fork changes](#what-this-fork-changes). Quick start below installs upstream from npm; to run this fork, see [Running this fork](#running-this-fork).
 
 ## Features
 
@@ -128,19 +128,38 @@ Once configured, start a conversation and ask your AI client to:
 
 ## Running this fork
 
-The fork is not published to npm; `npx -y zenmoney-mcp` installs upstream. Build branch `oviron` (see [From source](#from-source)) and point the client at `build/index.js`:
+The fork is not published to npm; `npx -y zenmoney-mcp` installs upstream. Each
+[release](https://github.com/oviron/zenmoney-mcp/releases) of this fork attaches a
+package with bundled dependencies, which `npx` runs straight from its URL:
 
 ```json
 {
   "mcpServers": {
     "zenmoney": {
-      "command": "node",
-      "args": ["/absolute/path/to/zenmoney-mcp/build/index.js"],
+      "command": "npx",
+      "args": [
+        "-y",
+        "--allow-remote=all",
+        "--package=https://github.com/oviron/zenmoney-mcp/releases/download/v0.4.1-oviron.1/zenmoney-mcp-0.4.1-oviron.1.tgz",
+        "zenmoney-mcp"
+      ],
       "env": { "ZENMONEY_TOKEN": "your_token_here" }
     }
   }
 }
 ```
+
+npm 12 refuses packages from a URL unless `--allow-remote=all` is set. The release notes
+give the package's sha256. To run from source instead:
+
+```bash
+git clone --branch oviron https://github.com/oviron/zenmoney-mcp.git
+cd zenmoney-mcp
+npm install
+npm run build
+```
+
+and point the client at it: `"command": "node", "args": ["/absolute/path/to/zenmoney-mcp/build/index.js"]`.
 
 ## Contributing
 
