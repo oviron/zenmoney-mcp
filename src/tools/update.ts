@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Account, Transaction } from "../api.js";
 import type { ZenState } from "../state.js";
 import { isoDate } from "../lib/dates.js";
-import { checkStillValid, resolveAccountStrict, resolveTagStrict } from "../lib/resolve.js";
+import { checkStillValid, resolveAccountStrict, resolveMerchantId, resolveTagsStrict } from "../lib/resolve.js";
 import {
   describeChanges,
   formatTransactionLine,
@@ -16,7 +16,7 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
     "update_transaction",
     {
       title: "Update Transaction",
-      description: "Change an existing transaction: its category, amount, date, payee, comment or account. Only the fields you pass are touched. Pass a single id or a list of ids to apply the same change to several transactions at once (handy for recategorizing). Ids come from list_transactions.",
+      description: "Change an existing transaction: its category, amount, date, payee, comment or account. Pass a single id or a list of ids from list_transactions. A change of account currency requires a new amount for each nonzero side whose currency changes, and clears that side's original amount/currency. A single-account transaction cannot have both income and outcome: to convert an expense to income, pass outcome_amount: 0 and income_amount (reverse for income to expense).",
       inputSchema: {
         id: z
           .union([z.string(), z.array(z.string())])
@@ -61,16 +61,16 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
           .string()
           .optional()
           .describe(
-            "Move the transaction to another account (name or UUID). Not valid for transfers — use from_account/to_account there."
+            "Move an expense or income to another account (name or UUID). If its currency changes, also pass amount or the active side's outcome_amount/income_amount."
           ),
         from_account: z
           .string()
           .optional()
-          .describe("New source account of a transfer (name or UUID)"),
+          .describe("New source account (name or UUID). If its currency changes, also pass outcome_amount."),
         to_account: z
           .string()
           .optional()
-          .describe("New destination account of a transfer (name or UUID)"),
+          .describe("New destination account (name or UUID). If its currency changes, also pass income_amount."),
       },
       annotations: {
         readOnlyHint: false,
@@ -142,20 +142,9 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
 
       let tagIds: string[] | null | undefined;
       if (category !== undefined) {
-        const wanted = (Array.isArray(category) ? category : [category])
-          .map((c) => c.trim())
-          .filter((c) => c !== "");
-        if (wanted.length === 0) {
-          tagIds = null;
-        } else {
-          const resolved: string[] = [];
-          for (const name of wanted) {
-            const match = resolveTagStrict(state, name);
-            if ("error" in match) return toolError(match.error);
-            resolved.push(match.tag.id);
-          }
-          tagIds = resolved;
-        }
+        const match = resolveTagsStrict(state, category);
+        if ("error" in match) return toolError(match.error);
+        tagIds = match.tagIds;
       }
 
       let bothAccount: Account | undefined;
@@ -208,12 +197,7 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
           if (comment !== undefined) next.comment = comment === "" ? null : comment;
           if (payee !== undefined) {
             next.payee = payee === "" ? null : payee;
-            const merchant = next.payee
-              ? state.merchants.find(
-                  (m) => m.title.toLowerCase() === next.payee!.toLowerCase()
-                )
-              : undefined;
-            next.merchant = merchant?.id ?? null;
+            next.merchant = resolveMerchantId(state, next.payee);
           }
 
           if (bothAccount) {
@@ -252,6 +236,30 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
           }
           if (outcome_amount !== undefined) next.outcome = outcome_amount;
           if (income_amount !== undefined) next.income = income_amount;
+
+          if (next.incomeAccount === next.outcomeAccount && next.income > 0 && next.outcome > 0) {
+            const hint = tx.outcome > 0 && tx.income === 0
+              ? "This is an expense; to make it an income, pass outcome_amount: 0 together with income_amount."
+              : tx.income > 0 && tx.outcome === 0
+                ? "This is an income; to make it an expense, pass income_amount: 0 together with outcome_amount."
+                : "Set income_amount: 0 for an expense, or outcome_amount: 0 for an income.";
+            return `Transaction ${tx.id} cannot have both income and outcome on the same account. ${hint} For a transfer, use different from_account/to_account.`;
+          }
+
+          if (next.outcomeInstrument !== tx.outcomeInstrument) {
+            if (next.outcome > 0 && amount === undefined && outcome_amount === undefined) {
+              return `Transaction ${tx.id} changes outcome currency. Pass outcome_amount in the new account currency (or amount for an expense). The old amount cannot be reused across currencies.`;
+            }
+            next.opOutcome = null;
+            next.opOutcomeInstrument = null;
+          }
+          if (next.incomeInstrument !== tx.incomeInstrument) {
+            if (next.income > 0 && amount === undefined && income_amount === undefined) {
+              return `Transaction ${tx.id} changes income currency. Pass income_amount in the new account currency (or amount for an income). The old amount cannot be reused across currencies.`;
+            }
+            next.opIncome = null;
+            next.opIncomeInstrument = null;
+          }
 
           if (
             next.incomeAccount !== next.outcomeAccount &&
