@@ -1,12 +1,62 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZenState } from "../state.js";
+import type { Transaction } from "../api.js";
+import { debtAccounts, debtCounterparty } from "../lib/debts.js";
 import { isoDate, localDate } from "../lib/dates.js";
 import { resolveAccountStrict, resolveTagStrict } from "../lib/resolve.js";
-import { formatTransactionLine, formatProvenance, transactionType } from "../lib/format.js";
+import { accountTitle, currencyOf, formatTransactionLine, formatProvenance, transactionType } from "../lib/format.js";
 import { toolError, toolText } from "../lib/result.js";
 
 export const MAX_TRANSACTION_OUTPUT_LENGTH = 50_000;
+
+const amountSchema = z.object({
+  amount: z.number().describe("Account-currency amount, before the displayed direction sign"),
+  currency: z.string().nullable().describe("Currency shortTitle, or null when unknown"),
+  originalAmount: z.number().optional().describe("Original purchase amount, only when displayed"),
+  originalCurrency: z.string().nullable().optional(),
+  account: z.string().optional().describe("Account title, shown for transfers and debts"),
+});
+const transactionSchema = z.object({
+  id: z.string(), date: isoDate,
+  type: z.enum(["expense", "income", "transfer", "debt", "other"]),
+  outcome: amountSchema.optional().describe("Outgoing side, only when displayed"),
+  income: amountSchema.optional().describe("Incoming side, only when displayed"),
+  categories: z.array(z.string()), payee: z.string(), comment: z.string().optional(),
+  hold: z.boolean(), deleted: z.boolean(),
+  provenance: z.object({
+    createdAt: z.string().describe("Creation timestamp in ISO 8601, as displayed"),
+    outcomeBankId: z.string().optional(), incomeBankId: z.string().optional(),
+  }).optional().describe("Present only when show_provenance is true"),
+});
+
+function transactionData(state: ZenState, t: Transaction, provenance: boolean): z.infer<typeof transactionSchema> {
+  const debt = debtAccounts(state, t);
+  const type = debt ? "debt" : transactionType(t);
+  const side = (amount: number, instrument: number, originalAmount: number | null, originalInstrument: number | null, account: string) => ({
+    amount, currency: currencyOf(state, instrument) || null,
+    ...(originalAmount != null && originalInstrument != null && (originalAmount !== amount || originalInstrument !== instrument)
+      ? { originalAmount, originalCurrency: currencyOf(state, originalInstrument) || null } : {}),
+    ...(debt || type === "transfer" ? { account: accountTitle(state, account) } : {}),
+  });
+  const otherAmounts = type === "other" && (t.outcome !== 0 || t.income !== 0);
+  return {
+    id: t.id, date: t.date, type,
+    ...((debt ? debt.outgoing : type === "expense" || type === "transfer" || otherAmounts)
+      ? { outcome: side(t.outcome, t.outcomeInstrument, t.opOutcome, t.opOutcomeInstrument, t.outcomeAccount) } : {}),
+    ...((debt ? !debt.outgoing : type === "income" || type === "transfer" || otherAmounts)
+      ? { income: side(t.income, t.incomeInstrument, t.opIncome, t.opIncomeInstrument, t.incomeAccount) } : {}),
+    categories: (t.tag ?? []).map((id) => state.tags.find((tag) => tag.id === id)?.title ?? id),
+    payee: debt ? debtCounterparty(state, t) : t.payee?.trim() ? t.payee : state.merchants.find((m) => m.id === t.merchant)?.title ?? "",
+    ...(t.comment ? { comment: t.comment } : {}),
+    hold: Boolean(t.hold), deleted: t.deleted,
+    ...(provenance ? { provenance: {
+      createdAt: new Date(t.created * 1000).toISOString().replace(".000Z", "Z"),
+      ...(t.outcomeBankID ? { outcomeBankId: t.outcomeBankID } : {}),
+      ...(t.incomeBankID ? { incomeBankId: t.incomeBankID } : {}),
+    } } : {}),
+  };
+}
 
 export function registerListTools(server: McpServer, state: ZenState) {
   server.registerTool(
@@ -95,6 +145,12 @@ export function registerListTools(server: McpServer, state: ZenState) {
           .describe(
             "Also list transactions deleted on the server, marked [DELETED]. Useful when a balance does not add up or to check whether a duplicate was already removed."
           ),
+      },
+      outputSchema: {
+        transactions: z.array(transactionSchema), total: z.number().int().nonnegative(),
+        offset: z.number().int().nonnegative(),
+        truncated: z.boolean().describe("More matching transactions remain after this page, due to limit or the text cap"),
+        nextOffset: z.number().int().nonnegative().optional().describe("Continuation offset, present exactly when truncated is true"),
       },
       annotations: {
         readOnlyHint: true,
@@ -206,7 +262,7 @@ export function registerListTools(server: McpServer, state: ZenState) {
           a.id.localeCompare(b.id)
       );
       const total = filtered.length;
-      if (total === 0) return toolText("No transactions found in the given period.");
+      if (total === 0) return { ...toolText("No transactions found in the given period."), structuredContent: { transactions: [], total, offset, truncated: false } };
 
       function header(count: number) {
         const nextOffset = offset + count;
@@ -218,6 +274,7 @@ export function registerListTools(server: McpServer, state: ZenState) {
       }
 
       const lines: string[] = [];
+      const transactions: z.infer<typeof transactionSchema>[] = [];
       let textLength = 0;
       for (const t of filtered.slice(offset, offset + limit)) {
         const line = show_provenance
@@ -233,12 +290,15 @@ export function registerListTools(server: McpServer, state: ZenState) {
           break;
         }
         lines.push(line);
+        transactions.push(transactionData(state, t, show_provenance));
         textLength = nextLength;
       }
 
-      return toolText(
+      const nextOffset = offset + lines.length;
+      const truncated = nextOffset < total;
+      return { ...toolText(
         header(lines.length) + (lines.length ? lines.join("\n") : "No more transactions.")
-      );
+      ), structuredContent: { transactions, total, offset, truncated, ...(truncated ? { nextOffset } : {}) } };
     }
   );
 }

@@ -34,6 +34,8 @@ Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Bra
 | `set_budget` | Set or remove a month's planned expenses or income for a category or in total |
 | `suggest_category` | Get auto-suggested category for a payee |
 
+`list_*` (except `list_merchants`), `summarize_transactions` and `get_budget` also return schema-validated structured data.
+
 ## What this fork changes
 
 Each item is one `patch/*` branch off upstream `main`.

@@ -14,6 +14,41 @@ const filters = {
   account: z.string().optional().describe("Account name or UUID, on either side of the operation"),
   category: z.string().optional().describe("Category name or UUID (exact category)"),
 };
+const plannedAmountSchema = z.object({
+  amount: z.number(), currency: z.string().nullable().describe("Currency shortTitle, or null when unknown"),
+  account: z.string().describe("Displayed account title"),
+});
+const operationSchema = z.object({
+  type: z.enum(["expense", "income", "transfer"]),
+  outcome: plannedAmountSchema.optional().describe("Outgoing side, only when displayed"),
+  income: plannedAmountSchema.optional().describe("Incoming side, only when displayed"),
+  categories: z.array(z.string()), payee: z.string().optional(), comment: z.string().optional(),
+});
+const reminderSchema = operationSchema.extend({
+  id: z.string(),
+  schedule: z.object({
+    interval: z.enum(["day", "week", "month", "year"]).nullable().describe("Null for a one-off operation"),
+    startDate: isoDate, endDate: isoDate.nullable().optional().describe("Inclusive end of a recurring schedule; null means no end date"),
+    step: z.number().optional(),
+    points: z.array(z.number()).optional().describe("Zero-based offsets in interval units within each step window"),
+  }),
+  nextPlannedDates: z.array(isoDate).describe("At most five displayed future dates from stored planned markers"),
+  truncated: z.boolean().describe("Additional stored planned dates are omitted from nextPlannedDates"),
+  remainingCount: z.number().int().nonnegative().describe("Number of omitted dates"),
+  materializedThrough: isoDate.nullable().describe("Last stored future planned date, or null when none remain"),
+});
+
+function operationData(state: ZenState, r: Reminder | ReminderMarker): z.infer<typeof operationSchema> {
+  const type = r.incomeAccount !== r.outcomeAccount ? "transfer" : r.outcome > 0 ? "expense" : "income";
+  const payee = r.payee ?? state.merchants.find((m) => m.id === r.merchant)?.title;
+  return {
+    type,
+    ...(type !== "income" ? { outcome: { amount: r.outcome, currency: currencyOf(state, r.outcomeInstrument) || null, account: accountTitle(state, r.outcomeAccount) } } : {}),
+    ...(type !== "expense" ? { income: { amount: r.income, currency: currencyOf(state, r.incomeInstrument) || null, account: accountTitle(state, r.incomeAccount) } } : {}),
+    categories: (r.tag ?? []).map((id) => state.tags.find((tag) => tag.id === id)?.title ?? id),
+    ...(payee ? { payee } : {}), ...(r.comment ? { comment: r.comment } : {}),
+  };
+}
 
 function resolveFilters(state: ZenState, input: { account?: string; category?: string }) {
   let accountId: string | undefined;
@@ -70,6 +105,7 @@ export function registerReminderTools(server: McpServer, state: ZenState) {
     title: "List Reminders",
     description: "List recurring and one-off scheduled operations with their schedules, accounts, amounts, categories, payees and next planned dates. Filters use strict account/category resolution. Finished series are hidden by default. Only stored markers are shown; this tool does not extend schedules.",
     inputSchema: { ...filters, include_finished: z.boolean().default(false).describe("Include series whose endDate is before today") },
+    outputSchema: { reminders: z.array(reminderSchema) },
     annotations: { readOnlyHint: true, openWorldHint: true },
   }, async (input) => {
     try {
@@ -84,12 +120,22 @@ export function registerReminderTools(server: McpServer, state: ZenState) {
         planned.set(m.reminder, dates);
       }
       for (const dates of planned.values()) dates.sort();
+      const rows: z.infer<typeof reminderSchema>[] = [];
       const lines = reminders.map((r) => {
         const dates = planned.get(r.id) ?? [];
+        rows.push({
+          ...operationData(state, r), id: r.id,
+          schedule: {
+            interval: r.interval, startDate: r.startDate,
+            ...(r.interval ? { step: r.step ?? 1, points: r.points ?? [0], endDate: r.endDate } : {}),
+          },
+          nextPlannedDates: dates.slice(0, 5), truncated: dates.length > 5,
+          remainingCount: Math.max(0, dates.length - 5), materializedThrough: dates.at(-1) ?? null,
+        });
         const upcoming = dates.length ? `${dates.slice(0, 5).join(", ")}${dates.length > 5 ? ` (+${dates.length - 5} more)` : ""}; materialized through ${dates.at(-1)}` : "none";
         return `${operationLine(state, r)} | ${describeSchedule(r)} | next planned: ${upcoming} | id: ${r.id}`;
       });
-      return toolText(lines.length ? `${lines.length} reminders:\n${lines.join("\n")}` : "No reminders found.");
+      return { ...toolText(lines.length ? `${lines.length} reminders:\n${lines.join("\n")}` : "No reminders found."), structuredContent: { reminders: rows } };
     } catch (error) {
       return toolError(error instanceof Error ? error.message : String(error));
     }
@@ -99,6 +145,10 @@ export function registerReminderTools(server: McpServer, state: ZenState) {
     title: "List Upcoming Planned Operations",
     description: "List stored planned reminder markers over N calendar days, including today, sorted by date. For example days=7 shows what is scheduled this week. Does not generate more markers; open-ended series are initially materialized for one year from start_date.",
     inputSchema: { ...filters, days: z.number().int().min(1).max(36600).default(7).describe("Calendar days including today (1-36600)") },
+    outputSchema: {
+      startDate: isoDate, endDate: isoDate.describe("Inclusive end of the range of stored planned markers"),
+      operations: z.array(operationSchema.extend({ id: z.string(), reminderId: z.string(), date: isoDate })),
+    },
     annotations: { readOnlyHint: true, openWorldHint: true },
   }, async (input) => {
     try {
@@ -107,7 +157,15 @@ export function registerReminderTools(server: McpServer, state: ZenState) {
       const until = addInterval(today, "day", input.days - 1) ?? "9999-12-31";
       const markers = state.reminderMarkers.filter((m) => m.state === "planned" && m.date >= today && m.date <= until && matches(m))
         .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
-      return toolText(`${markers.length} planned operations, ${today} to ${until} inclusive (stored markers only):${markers.length ? "\n" + markers.map((m) => `${m.date} | ${operationLine(state, m)} | reminder: ${m.reminder} | id: ${m.id}`).join("\n") : " none."}`);
+      const operations: (z.infer<typeof operationSchema> & { id: string; reminderId: string; date: string })[] = [];
+      const lines = markers.map((m) => {
+        operations.push({ ...operationData(state, m), id: m.id, reminderId: m.reminder, date: m.date });
+        return `${m.date} | ${operationLine(state, m)} | reminder: ${m.reminder} | id: ${m.id}`;
+      });
+      return {
+        ...toolText(`${markers.length} planned operations, ${today} to ${until} inclusive (stored markers only):${markers.length ? "\n" + lines.join("\n") : " none."}`),
+        structuredContent: { startDate: today, endDate: until, operations },
+      };
     } catch (error) {
       return toolError(error instanceof Error ? error.message : String(error));
     }
