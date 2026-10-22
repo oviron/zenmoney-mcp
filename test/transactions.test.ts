@@ -1256,7 +1256,7 @@ describe("update_transaction", () => {
     });
   });
 
-  it("should move a transaction to another account and follow its currency", async () => {
+  it("should reject moving a transaction to another currency without a new amount", async () => {
     await setup({ transactions: [EXPENSE] });
 
     const result = await callTool("update_transaction", {
@@ -1264,13 +1264,10 @@ describe("update_transaction", () => {
       account: "Euro Card",
     });
 
-    expect(getTextContent(result)).toContain("account: Checking → Euro Card");
-    expect(sentTransaction()).toMatchObject({
-      incomeAccount: EURO_CARD.id,
-      outcomeAccount: EURO_CARD.id,
-      incomeInstrument: 2,
-      outcomeInstrument: 2,
-    });
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("outcome_amount");
+    expect(api.diff).not.toHaveBeenCalled();
+    expect(state.findTransaction("tx-expense")).toEqual(EXPENSE);
   });
 
   it("should reject account on a transfer", async () => {
@@ -1285,18 +1282,20 @@ describe("update_transaction", () => {
     expect(getTextContent(result)).toContain("from_account/to_account");
   });
 
-  it("should move one side of a transfer", async () => {
+  it("should move one side of a transfer with an explicit amount in the new currency", async () => {
     await setup({ transactions: [TRANSFER] });
 
     const result = await callTool("update_transaction", {
       id: "tx-transfer",
       from_account: "Euro Card",
+      outcome_amount: 450,
     });
 
     expect(getTextContent(result)).toContain("from account: Checking → Euro Card");
     expect(sentTransaction()).toMatchObject({
       outcomeAccount: EURO_CARD.id,
       outcomeInstrument: 2,
+      outcome: 450,
       incomeAccount: SAVINGS.id,
     });
   });

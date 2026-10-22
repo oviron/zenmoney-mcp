@@ -101,7 +101,7 @@ describe("checks at the write's turn in the queue", () => {
   it.each([
     [{ amount: 5 }],
     [{ outcome_amount: 5 }],
-    [{ income_amount: 5 }],
+    [{ outcome_amount: 0, income_amount: 5 }],
   ])("refuses new amounts %o when the transaction changed currency meanwhile", async (args) => {
     const { api, state, call } = await setup();
     const sync = holdSync(api, state);

@@ -13,10 +13,10 @@ Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Bra
 | `list_categories` | List expense/income categories with hierarchy |
 | `list_merchants` | List known merchants/payees |
 | `list_transactions` | List and filter recent transactions |
-| `add_expense` | Add an expense transaction |
-| `add_income` | Add an income transaction |
-| `add_transfer` | Transfer money between accounts (including cross-currency) |
-| `update_transaction` | Change an existing transaction — category, amount, date, payee, comment, account |
+| `add_expense` | Add an expense; `category` accepts a name/UUID or an array; `original_amount` + `original_currency` record a foreign-currency purchase; `payee` links an exact merchant name; optional UUID `id` prevents duplicate retries |
+| `add_income` | Add income with the same category, original-currency, merchant and UUID `id` options as `add_expense` |
+| `add_transfer` | Transfer between accounts, including cross-currency; `amount` aliases `outcome_amount` (must match if both are given); optional UUID `id` prevents duplicate retries |
+| `update_transaction` | Change category, amounts, date, payee, comment or accounts; a change of account currency requires a new amount for that side and clears its original amount/currency; a single-account operation cannot have both income and outcome |
 | `delete_transaction` | Delete one or more transactions by id (cannot be undone, requires `confirm: true`) |
 | `summarize_transactions` | Totals by category, payee, account or month in the main currency |
 | `suggest_category` | Get auto-suggested category for a payee |
@@ -133,6 +133,25 @@ Once configured, start a conversation and ask your AI client to:
 5. **Fix mistakes** — "Recategorize yesterday's Amazon expense to Household", "Change the comment on that 500 RUB coffee", "Delete the duplicate taxi ride from Monday"
 
 `list_transactions` prints each transaction's id, and `update_transaction` and `delete_transaction` take one id or a list of them — so a whole batch can be recategorized or removed in a single call. ZenMoney does not restore deleted transactions, so a deleted one can only be added back as a new transaction.
+
+For `add_expense` and `add_income`, `amount` is in the account currency. Pass
+`original_amount` and `original_currency` together to also record the original
+foreign amount. The currency must match an instrument's `shortTitle` exactly,
+ignoring case (for example, `USD`); unknown or ambiguous codes and the account's
+own currency are errors. `payee` links a known merchant only when the full name
+matches, ignoring case.
+
+All three creation tools accept an optional UUID `id`. After an error saying
+"may or may not have been saved", retry with the same `id` from the error and the
+same parameters. A cached transaction with that id is shown without writing it
+again, including if it was deleted. Omitting `id` generates a new UUID and is
+appropriate only for a new operation.
+
+When moving an operation to an account in another currency, pass the new amount
+in that currency: `amount` for an expense/income, or `outcome_amount` and/or
+`income_amount` for the changed transfer sides. To convert an expense to income
+on the same account, pass `outcome_amount: 0` and `income_amount`; to convert income
+to an expense, pass `income_amount: 0` and `outcome_amount`.
 
 ## Running this fork
 

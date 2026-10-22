@@ -49,6 +49,28 @@ export function resolveTagStrict(
   };
 }
 
+export function resolveTagsStrict(
+  state: ZenState,
+  category: string | string[]
+): { tagIds: string[] | null } | { error: string } {
+  const wanted = (Array.isArray(category) ? category : [category])
+    .map((c) => c.trim())
+    .filter((c) => c !== "");
+  const tagIds: string[] = [];
+  for (const name of wanted) {
+    const match = resolveTagStrict(state, name);
+    if ("error" in match) return match;
+    tagIds.push(match.tag.id);
+  }
+  return { tagIds: tagIds.length ? tagIds : null };
+}
+
+export function resolveMerchantId(state: ZenState, payee: string | null | undefined): string | null {
+  return payee
+    ? state.merchants.find((m) => m.title.toLowerCase() === payee.toLowerCase())?.id ?? null
+    : null;
+}
+
 /** Like resolveTagStrict; an archived account loses a tie to an active one. */
 export function resolveAccountStrict(
   state: ZenState,
