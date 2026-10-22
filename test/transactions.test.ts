@@ -1740,3 +1740,118 @@ describe("name resolution", () => {
     expect(text).not.toContain("tx-share");
   });
 });
+
+describe("delete_transaction", () => {
+  const EXPENSE = makeTransaction({
+    id: "tx-expense",
+    outcome: 50,
+    outcomeAccount: "acc-checking",
+    incomeAccount: "acc-checking",
+    date: "2026-03-20",
+  });
+
+  const INCOME = makeTransaction({
+    id: "tx-income",
+    outcome: 0,
+    income: 3000,
+    outcomeAccount: "acc-checking",
+    incomeAccount: "acc-checking",
+    date: "2026-03-01",
+  });
+
+  function sentDeletion() {
+    const call = vi.mocked(api.diff).mock.calls.at(-1)![0] as any;
+    return call.deletion;
+  }
+
+  it("should send a deletion and drop the transaction locally", async () => {
+    await setup({ transactions: [EXPENSE, INCOME] });
+
+    const result = await callTool("delete_transaction", { id: "tx-expense", confirm: true });
+
+    const text = getTextContent(result);
+    expect(result.isError).toBeFalsy();
+    expect(text).toContain("Transaction deleted");
+    expect(text).toContain("id: tx-expense");
+    expect(text).toContain("cannot be undone");
+    expect(sentDeletion()).toEqual([
+      { id: "tx-expense", object: "transaction", stamp: expect.any(Number), user: 1 },
+    ]);
+    expect(vi.mocked(api.diff).mock.calls.at(-1)![0]).not.toHaveProperty("transaction");
+    expect(state.findTransaction("tx-expense")).toBeUndefined();
+    expect(state.findTransaction("tx-income")).toBeDefined();
+    expect(state.serverTimestamp).toBe(1700000001);
+  });
+
+  it("should apply the rest of the server's response", async () => {
+    await setup({ transactions: [EXPENSE] });
+    vi.mocked(api.diff).mockResolvedValueOnce({
+      ...emptyDiff(1700000005),
+      account: [{ ...CHECKING, balance: 1050 }],
+    });
+
+    await callTool("delete_transaction", { id: "tx-expense", confirm: true });
+
+    expect(state.serverTimestamp).toBe(1700000005);
+    expect(state.accounts.find((a) => a.id === "acc-checking")?.balance).toBe(1050);
+  });
+
+  it("should delete several transactions in one request", async () => {
+    await setup({ transactions: [EXPENSE, INCOME] });
+
+    const result = await callTool("delete_transaction", {
+      id: ["tx-expense", "tx-income", "tx-expense"],
+      confirm: true,
+    });
+
+    expect(getTextContent(result)).toContain("2 transactions deleted");
+    expect(api.diff).toHaveBeenCalledTimes(1);
+    expect(sentDeletion().map((d: any) => d.id)).toEqual(["tx-expense", "tx-income"]);
+    expect(state.transactions).toHaveLength(0);
+  });
+
+  it("should refuse without confirm: true", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("delete_transaction", { id: "tx-expense", confirm: false });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("confirm: true");
+    expect(api.diff).not.toHaveBeenCalled();
+    expect(state.findTransaction("tx-expense")).toBeDefined();
+  });
+
+  it("should delete nothing when any id is unknown", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("delete_transaction", {
+      id: ["tx-expense", "tx-nope"],
+      confirm: true,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("tx-nope");
+    expect(api.diff).not.toHaveBeenCalled();
+    expect(state.findTransaction("tx-expense")).toBeDefined();
+  });
+
+  it("should keep the transaction locally when the API fails", async () => {
+    await setup({ transactions: [EXPENSE] });
+    vi.mocked(api.diff).mockRejectedValue(new Error("Network error"));
+
+    const result = await callTool("delete_transaction", { id: "tx-expense", confirm: true });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("Network error");
+    expect(state.findTransaction("tx-expense")).toBeDefined();
+  });
+
+  it("should error when not synced", async () => {
+    await setup({ synced: false });
+
+    const result = await callTool("delete_transaction", { id: "tx-expense", confirm: true });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("not synced");
+  });
+});

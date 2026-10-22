@@ -71,9 +71,10 @@ export class ZenState {
   }
 
   /**
-   * Send local changes and apply the server's response. `beforeApply` runs
-   * once the server has accepted the request and before the response is
-   * merged, so a version of the same object in the response wins.
+   * Send local changes and apply the server's response. Once the server has
+   * accepted the request, the sent deletions are applied locally and
+   * `beforeApply` runs; only then is the response merged, so a version of
+   * the same object in the response wins.
    *
    * Pass `changes` as a function when they are derived from local state: it
    * runs when this write's turn comes, after the exchanges queued before it
@@ -84,11 +85,13 @@ export class ZenState {
     beforeApply?: () => void
   ): Promise<DiffResponse> {
     return this.serialize(async () => {
+      const sent = typeof changes === "function" ? changes() : changes;
       const resp = await this.api.diff({
         currentClientTimestamp: Math.floor(Date.now() / 1000),
         serverTimestamp: this.serverTimestamp,
-        ...(typeof changes === "function" ? changes() : changes),
+        ...sent,
       });
+      for (const d of sent.deletion ?? []) this.applyDeletion(d.object, d.id);
       beforeApply?.();
       this.applyDiff(resp);
       return resp;
