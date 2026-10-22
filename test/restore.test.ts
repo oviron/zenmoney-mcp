@@ -98,6 +98,60 @@ describe("restore_transaction", () => {
   });
 });
 
+describe("restore_transaction links a copy to its original by id", () => {
+  it("makes one copy when the same transaction is restored twice in parallel", async () => {
+    const { api, state, call } = await setup();
+    const [a, b] = await Promise.all([
+      call("restore_transaction", { id: "tx-gone" }),
+      call("restore_transaction", { id: "tx-gone" }),
+    ]);
+    expect(api.diff).toHaveBeenCalledTimes(2);
+    expect(state.transactions.filter((t) => t.outcome === 70)).toHaveLength(1);
+    expect([getTextContent(a), getTextContent(b)].join("\n")).toContain("is already back as");
+  });
+
+  it("is not blocked by a separate transaction with the same fields", async () => {
+    const lookalike = { ...GONE, id: "tx-lookalike", deleted: false };
+    const { call } = await setup([LIVE, GONE, lookalike]);
+    const result = await call("restore_transaction", { id: "tx-gone" });
+    expect(getTextContent(result)).toContain("Transaction restored");
+  });
+
+  it("still knows the copy after the copy was edited", async () => {
+    const { state, call } = await setup();
+    await call("restore_transaction", { id: "tx-gone" });
+    const copy = state.transactions.find((t) => t.id !== "tx-live")!;
+    await call("update_transaction", { id: copy.id, amount: 99 });
+    const again = await call("restore_transaction", { id: "tx-gone" });
+    expect(getTextContent(again)).toContain(`tx-gone is already back as ${copy.id}`);
+    expect(state.transactions).toHaveLength(2);
+  });
+
+  it("restores the latest copy when the copy was deleted too", async () => {
+    const { state, call } = await setup();
+    await call("restore_transaction", { id: "tx-gone" });
+    const copy = state.transactions.find((t) => t.id !== "tx-live")!;
+    await call("update_transaction", { id: copy.id, amount: 99 });
+    await call("delete_transaction", { id: copy.id, confirm: true });
+    const result = await call("restore_transaction", { id: "tx-gone" });
+    expect(getTextContent(result)).toContain("Transaction restored");
+    const back = state.transactions.find((t) => t.id !== "tx-live")!;
+    expect(back.outcome).toBe(99);
+  });
+
+  it("deletes the version a write queued ahead left", async () => {
+    const { api, state, call } = await setup([LIVE]);
+    await Promise.all([
+      call("update_transaction", { id: "tx-live", amount: 90 }),
+      call("delete_transaction", { id: "tx-live", confirm: true }),
+    ]);
+    const sentDeleted = vi.mocked(api.diff).mock.calls[2][0].transaction![0];
+    expect(sentDeleted).toMatchObject({ id: "tx-live", deleted: true, outcome: 90 });
+    await call("restore_transaction", { id: "tx-live" });
+    expect(state.transactions[0].outcome).toBe(90);
+  });
+});
+
 describe("delete_transaction", () => {
   it("says when a transaction is already deleted", async () => {
     const { call } = await setup();
