@@ -123,6 +123,7 @@ export class ZenState {
     this.companies = [];
     this.instruments = [];
     this.transactions = [];
+    this.deletedTransactions.clear();
     this.users = [];
   }
 
