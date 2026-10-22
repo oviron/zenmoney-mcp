@@ -127,6 +127,14 @@ export const ARCHIVED_ACCOUNT: Account = {
   private: false,
 };
 
+export const DEBT_ACCOUNT: Account = {
+  ...CHECKING,
+  id: "acc-debt",
+  type: "debt",
+  title: "Debts",
+  balance: 0,
+};
+
 export const FOOD: Tag = {
   id: "tag-food",
   changed: 1000,

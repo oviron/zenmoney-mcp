@@ -1,5 +1,6 @@
 import type { Transaction } from "../api.js";
 import type { ZenState } from "../state.js";
+import { debtAccounts, debtCounterparty } from "./debts.js";
 
 export function tagTitles(state: ZenState, ids: string[] | null): string {
   if (!ids || ids.length === 0) return "none";
@@ -45,7 +46,8 @@ function formatAmount(
 }
 
 export function formatTransactionLine(state: ZenState, t: Transaction): string {
-  const type = transactionType(t);
+  const debt = debtAccounts(state, t);
+  const type = debt ? "debt" : transactionType(t);
   const outcome = (sign = "") => formatAmount(
     state, t.outcome, t.outcomeInstrument, t.opOutcome, t.opOutcomeInstrument, sign
   );
@@ -54,7 +56,11 @@ export function formatTransactionLine(state: ZenState, t: Transaction): string {
   );
   let amountStr = "";
 
-  if (type === "transfer") {
+  if (debt) {
+    amountStr = debt.outgoing
+      ? `${outcome()} out (${accountTitle(state, t.outcomeAccount)})`
+      : `${income()} in (${accountTitle(state, t.incomeAccount)})`;
+  } else if (type === "transfer") {
     const from = accountTitle(state, t.outcomeAccount);
     const to = accountTitle(state, t.incomeAccount);
     if (
@@ -76,7 +82,7 @@ export function formatTransactionLine(state: ZenState, t: Transaction): string {
   const cats = t.tag
     ? t.tag.map((id) => state.tags.find((tg) => tg.id === id)?.title ?? id).join(", ")
     : "";
-  const payeeStr = t.payee?.trim()
+  const payeeStr = debt ? debtCounterparty(state, t) : t.payee?.trim()
     ? t.payee
     : state.merchants.find((m) => m.id === t.merchant)?.title ?? "";
   const commentStr = t.comment ? ` — "${t.comment}"` : "";
