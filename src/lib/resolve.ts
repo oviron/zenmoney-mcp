@@ -74,3 +74,33 @@ export function ambiguous(
   const list = matches.map((m) => `${m.title} (${m.id})`).join(", ");
   return `${label} "${input}" is ambiguous — it matches: ${list}. Use the exact title or the ${idName}.`;
 }
+
+/**
+ * Check, when a write's turn comes in the queue, that what it was resolved
+ * against still holds: an exchange queued ahead of it (a sync, another
+ * write) may have deleted an account or category, or changed an account's
+ * currency, and the amount was given in the old one. Throws, so the write
+ * is rejected before anything is sent.
+ */
+export function checkStillValid(
+  state: ZenState,
+  accounts: { account: Account; instrument: number }[],
+  tagIds: string[] | null | undefined
+): void {
+  for (const { account, instrument } of accounts) {
+    const current = state.accounts.find((a) => a.id === account.id);
+    if (!current) {
+      throw new Error(`Account ${account.title} was deleted in ZenMoney meanwhile. Nothing was saved.`);
+    }
+    if ((current.instrument ?? state.getUser()?.currency ?? 1) !== instrument) {
+      throw new Error(
+        `Account ${account.title} changed its currency in ZenMoney meanwhile. Nothing was saved; check the amount and try again.`
+      );
+    }
+  }
+  for (const id of tagIds ?? []) {
+    if (!state.tags.some((t) => t.id === id)) {
+      throw new Error(`Category ${id} was deleted in ZenMoney meanwhile. Nothing was saved.`);
+    }
+  }
+}

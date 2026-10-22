@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Account, Transaction } from "../api.js";
 import type { ZenState } from "../state.js";
 import { isoDate } from "../lib/dates.js";
-import { resolveAccountStrict, resolveTagStrict } from "../lib/resolve.js";
+import { checkStillValid, resolveAccountStrict, resolveTagStrict } from "../lib/resolve.js";
 import {
   describeChanges,
   formatTransactionLine,
@@ -273,6 +273,13 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
       try {
         await state.write(
           () => {
+            checkStillValid(
+              state,
+              [bothAccount, sourceAccount, targetAccount]
+                .filter((a): a is Account => a !== undefined)
+                .map((a) => ({ account: a, instrument: a.instrument ?? user.currency ?? 1 })),
+              tagIds
+            );
             const fresh = buildUpdates();
             if (typeof fresh === "string") throw new Error(fresh);
             ({ originals, updates } = fresh);

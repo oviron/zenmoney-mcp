@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZenState } from "../state.js";
 import { isoDate } from "../lib/dates.js";
-import { resolveAccountStrict, resolveTagStrict } from "../lib/resolve.js";
-import { serverVersionWarning, tagTitles } from "../lib/format.js";
+import { checkStillValid, resolveAccountStrict, resolveTagStrict } from "../lib/resolve.js";
+import { accountTitle, currencyOf, serverVersionWarning, tagTitles } from "../lib/format.js";
 import { toolError, toolText } from "../lib/result.js";
 
 export function registerCreateTools(server: McpServer, state: ZenState) {
@@ -87,20 +87,18 @@ export function registerCreateTools(server: McpServer, state: ZenState) {
       };
 
       try {
-        await state.write({ transaction: [transaction] }, () =>
-          state.upsertTransaction(transaction)
+        await state.write(
+          () => {
+            checkStillValid(state, [{ account: acc, instrument: instrumentId }], tagIds);
+            return { transaction: [transaction] };
+          },
+          () => state.upsertTransaction(transaction)
         );
 
-        const instr = state.getInstrument(instrumentId);
-        const currency = instr?.shortTitle ?? "";
-        const catName = tagIds
-          ? tagIds
-              .map((id) => state.tags.find((t) => t.id === id)?.title ?? id)
-              .join(", ")
-          : "uncategorized";
-
+        // What the server kept, which a warning below compares with what we sent
+        const saved = state.findTransaction(transaction.id) ?? transaction;
         return toolText(
-          `Expense added:\n- Amount: ${amount} ${currency}\n- Account: ${acc.title}\n- Date: ${date}\n- Category: ${catName}${payee ? `\n- Payee: ${payee}` : ""}${comment ? `\n- Comment: ${comment}` : ""}\n- ID: ${transaction.id}${serverVersionWarning(state, transaction)}`
+          `Expense added:\n- Amount: ${saved.outcome} ${currencyOf(state, saved.outcomeInstrument)}\n- Account: ${accountTitle(state, saved.outcomeAccount)}\n- Date: ${saved.date}\n- Category: ${saved.tag?.length ? tagTitles(state, saved.tag) : "uncategorized"}${saved.payee ? `\n- Payee: ${saved.payee}` : ""}${saved.comment ? `\n- Comment: ${saved.comment}` : ""}\n- ID: ${transaction.id}${serverVersionWarning(state, transaction)}`
         );
       } catch (error) {
         return toolError(`Failed to add expense: ${error instanceof Error ? error.message : String(error)}`);
@@ -182,15 +180,17 @@ export function registerCreateTools(server: McpServer, state: ZenState) {
       };
 
       try {
-        await state.write({ transaction: [transaction] }, () =>
-          state.upsertTransaction(transaction)
+        await state.write(
+          () => {
+            checkStillValid(state, [{ account: acc, instrument: instrumentId }], tagIds);
+            return { transaction: [transaction] };
+          },
+          () => state.upsertTransaction(transaction)
         );
 
-        const instr = state.getInstrument(instrumentId);
-        const currency = instr?.shortTitle ?? "";
-
+        const saved = state.findTransaction(transaction.id) ?? transaction;
         return toolText(
-          `Income added:\n- Amount: ${amount} ${currency}\n- Account: ${acc.title}\n- Date: ${date}\n- Category: ${tagIds ? tagTitles(state, tagIds) : "uncategorized"}${payee ? `\n- Payee: ${payee}` : ""}${comment ? `\n- Comment: ${comment}` : ""}\n- ID: ${transaction.id}${serverVersionWarning(state, transaction)}`
+          `Income added:\n- Amount: ${saved.income} ${currencyOf(state, saved.incomeInstrument)}\n- Account: ${accountTitle(state, saved.incomeAccount)}\n- Date: ${saved.date}\n- Category: ${saved.tag?.length ? tagTitles(state, saved.tag) : "uncategorized"}${saved.payee ? `\n- Payee: ${saved.payee}` : ""}${saved.comment ? `\n- Comment: ${saved.comment}` : ""}\n- ID: ${transaction.id}${serverVersionWarning(state, transaction)}`
         );
       } catch (error) {
         return toolError(`Failed to add income: ${error instanceof Error ? error.message : String(error)}`);
@@ -296,19 +296,31 @@ export function registerCreateTools(server: McpServer, state: ZenState) {
       };
 
       try {
-        await state.write({ transaction: [transaction] }, () =>
-          state.upsertTransaction(transaction)
+        await state.write(
+          () => {
+            checkStillValid(
+              state,
+              [
+                { account: fromAcc, instrument: outcomeInstrument },
+                { account: toAcc, instrument: incomeInstrument },
+              ],
+              null
+            );
+            return { transaction: [transaction] };
+          },
+          () => state.upsertTransaction(transaction)
         );
 
-        const fromInstr = state.getInstrument(outcomeInstrument);
-        const toInstr = state.getInstrument(incomeInstrument);
+        const saved = state.findTransaction(transaction.id) ?? transaction;
+        const from = `${saved.outcome} ${currencyOf(state, saved.outcomeInstrument)}`;
+        const to = `${saved.income} ${currencyOf(state, saved.incomeInstrument)}`;
         const amountLine =
-          isCrossCurrency || resolvedIncome !== resolvedOutcome
-            ? `- From amount: ${resolvedOutcome} ${fromInstr?.shortTitle ?? ""}\n- To amount: ${resolvedIncome} ${toInstr?.shortTitle ?? ""}`
-            : `- Amount: ${resolvedOutcome} ${fromInstr?.shortTitle ?? ""}`;
+          from !== to
+            ? `- From amount: ${from}\n- To amount: ${to}`
+            : `- Amount: ${from}`;
 
         return toolText(
-          `Transfer added:\n- From: ${fromAcc.title}\n- To: ${toAcc.title}\n${amountLine}\n- Date: ${date}\n- ID: ${transaction.id}${serverVersionWarning(state, transaction)}`
+          `Transfer added:\n- From: ${accountTitle(state, saved.outcomeAccount)}\n- To: ${accountTitle(state, saved.incomeAccount)}\n${amountLine}\n- Date: ${saved.date}\n- ID: ${transaction.id}${serverVersionWarning(state, transaction)}`
         );
       } catch (error) {
         return toolError(`Failed to add transfer: ${error instanceof Error ? error.message : String(error)}`);

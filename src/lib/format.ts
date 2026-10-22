@@ -12,6 +12,11 @@ export function accountTitle(state: ZenState, id: string): string {
   return state.accounts.find((a) => a.id === id)?.title ?? id;
 }
 
+function merchantTitle(state: ZenState, id: string | null): string {
+  if (!id) return "none";
+  return state.merchants.find((m) => m.id === id)?.title ?? id;
+}
+
 export function currencyOf(state: ZenState, instrument: number): string {
   return state.getInstrument(instrument)?.shortTitle ?? "";
 }
@@ -171,6 +176,9 @@ export function describeChanges(
 
   if (before.payee !== after.payee) {
     lines.push(`payee: ${before.payee ?? "none"} → ${after.payee ?? "none"}`);
+  }
+  if ((before.merchant ?? null) !== (after.merchant ?? null)) {
+    lines.push(`merchant: ${merchantTitle(state, before.merchant)} → ${merchantTitle(state, after.merchant)}`);
   }
   if (before.comment !== after.comment) {
     lines.push(`comment: ${before.comment ?? "none"} → ${after.comment ?? "none"}`);
