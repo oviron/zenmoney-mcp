@@ -21,6 +21,10 @@ Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Bra
 | `update_transaction` | Change category, amounts, date, payee, comment or accounts; a change of account currency requires a new amount for that side and clears its original amount/currency; existing debts accept metadata edits and equal amounts, but their accounts cannot be changed here |
 | `delete_transaction` | Delete one or more transactions by id, as the ZenMoney apps do (requires `confirm: true`) |
 | `restore_transaction` | Bring deleted transactions back as copies with new ids |
+| `list_reminders` | List recurring and one-off plans with schedules and next planned dates; filter by account/category; `include_finished` shows ended series |
+| `list_upcoming` | List planned operations for the next `days` calendar days, including today, sorted by date |
+| `add_reminder` | Plan an expense, income or transfer and create its dated markers through `end_date`, or for one year from `start_date` |
+| `delete_reminder` | Delete a series and its planned markers dated today or later (requires `confirm: true`) |
 | `summarize_transactions` | Totals by category, payee, account or month in the main currency |
 | `get_budget` | A month's budget against actual expenses and income, by category |
 | `set_budget` | Set or remove a month's planned expenses or income for a category or in total |
@@ -42,6 +46,45 @@ Each item is one `patch/*` branch off upstream `main`.
 - `validate-dates`: every date parameter must be a real `YYYY-MM-DD` date; `2026-02-30` used to pass.
 - `transfer-same-account`: a transfer to the account it comes from is rejected.
 - `transfer-amounts`: a transfer whose two sides differ (currency exchange) shows both amounts.
+
+## Planned operations
+
+`add_reminder` takes `type` (`expense`, `income` or `transfer`), `start_date`, and
+the operation's accounts and amounts. Expenses and income use `account` and
+`amount`. Transfers use `from_account`, `to_account`, `outcome_amount` (or `amount`)
+and `income_amount`; both amounts are required across currencies. All three types
+accept `category`, `payee`, `comment` and `notify` (default `false`).
+
+Omit `interval`, or pass `null`, for a one-off plan. For a series, use `day`,
+`week`, `month` or `year`, with `step` (default `1`) and `points` (default `[0]`).
+As in the [ZenMoney API](https://github.com/zenmoney/ZenPlugins/wiki/ZenMoney-API#reminder),
+points are zero-based offsets in interval units inside a step window, each less
+than `step`. For example, `interval: "day", step: 7, points: [0, 2, 4]` fires on
+the starting day and two/four days later, every seven days. Points are not weekday
+numbers or days of the month. For monthly payments on the 31st, set `start_date`
+to a 31st and use `interval: "month", points: [0]`. A short month uses its last
+day; January 31 becomes February 28 (29 in leap years), then March 31.
+
+The client creates the dated markers. With `end_date`, it writes all dates through
+that day inclusive, in batches of 500. Without it, it writes through one calendar
+year from `start_date`, inclusive. This horizon is not extended automatically.
+`list_reminders` shows the next five planned dates and the last materialized date;
+`list_upcoming` shows stored planned markers over `days` calendar days including
+today (default `7`). Neither listing generates more markers.
+
+`delete_reminder` takes a series `id`. Without `confirm: true`, it previews the
+deletion. With confirmation, it sends `deletion` records for future planned
+markers (including today) and the series, in batches. It sends no changes for
+processed markers or transactions. The local cache retains past planned and
+processed markers unless ZenMoney returns their deletion; a series deletion can
+also remove markers on the server. That cascade has not been checked against the
+live API in this fork.
+
+Multiple batches are not atomic. If creation or deletion stops partway through,
+the tool reports the series id and confirmed progress. Do not repeat
+`add_reminder` after a partial or uncertain result: run `sync_data`, then inspect
+`list_reminders` with `include_finished: true` and `list_upcoming` before making
+further changes. Upcoming listings cover future dates only.
 
 ## Configuration
 

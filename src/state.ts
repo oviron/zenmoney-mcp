@@ -7,13 +7,15 @@ import {
   type Company,
   type Instrument,
   type Transaction,
+  type Reminder,
+  type ReminderMarker,
   type Budget,
   type User,
   type DiffRequest,
   type DiffResponse,
 } from "./api.js";
 
-type WriteChanges = Pick<DiffRequest, "transaction" | "deletion" | "budget">;
+type WriteChanges = Pick<DiffRequest, "transaction" | "reminder" | "reminderMarker" | "deletion" | "budget">;
 
 export class ZenState {
   private api: ZenMoneyAPI;
@@ -24,6 +26,8 @@ export class ZenState {
   companies: Company[] = [];
   instruments: Instrument[] = [];
   transactions: Transaction[] = [];
+  reminders: Reminder[] = [];
+  reminderMarkers: ReminderMarker[] = [];
   users: User[] = [];
   /** Keyed by budgetKey(date, tag): budgets have no id of their own. */
   private budgets = new Map<string, Budget>();
@@ -94,6 +98,8 @@ export class ZenState {
           "tag",
           "merchant",
           "transaction",
+          "reminder",
+          "reminderMarker",
           "user",
           "budget",
         ];
@@ -192,6 +198,8 @@ export class ZenState {
     this.companies = [];
     this.instruments = [];
     this.transactions = [];
+    this.reminders = [];
+    this.reminderMarkers = [];
     this.deletedTransactions.clear();
     this.budgets.clear();
     this.users = [];
@@ -212,6 +220,8 @@ export class ZenState {
     this.mergeEntities("companies", resp.company, (e) => e.id);
     this.mergeEntities("users", resp.user, (e) => e.id);
     this.mergeTransactions(resp.transaction);
+    this.mergeEntities("reminders", resp.reminder, (e) => e.id);
+    this.mergeEntities("reminderMarkers", resp.reminderMarker, (e) => e.id);
     for (const b of resp.budget ?? []) this.upsertBudget(b);
 
     if (resp.deletion) {
@@ -269,6 +279,12 @@ export class ZenState {
         this.transactions = this.transactions.filter((t) => t.id !== id);
         break;
       }
+      case "reminder":
+        this.reminders = this.reminders.filter((r) => r.id !== id);
+        break;
+      case "reminderMarker":
+        this.reminderMarkers = this.reminderMarkers.filter((m) => m.id !== id);
+        break;
       case "account":
         this.accounts = this.accounts.filter((a) => a.id !== id);
         break;
@@ -330,6 +346,14 @@ export class ZenState {
     }
   }
 
+  upsertReminder(reminder: Reminder): void {
+    this.mergeEntities("reminders", [reminder], (r) => r.id);
+  }
+
+  upsertReminderMarkers(markers: ReminderMarker[]): void {
+    this.mergeEntities("reminderMarkers", markers, (m) => m.id);
+  }
+
   getBudgets(): Budget[] {
     return Array.from(this.budgets.values());
   }
@@ -351,15 +375,15 @@ export class ZenState {
   }
 }
 
-function budgetKey(date: string, tag: string | null): string {
-  return `${date}#${tag ?? ""}`;
-}
-
 /**
  * zerro (zerro.app) keeps its settings in reminders on an account of this
  * name; it holds no money and is no place to record an operation.
  */
 export const ZERRO_DATA_ACCOUNT = "🤖 [Zerro Data]";
+
+function budgetKey(date: string, tag: string | null): string {
+  return `${date}#${tag ?? ""}`;
+}
 
 function defaultSyncTtlMs(): number {
   const raw = process.env.ZENMONEY_SYNC_TTL?.trim();
@@ -370,14 +394,23 @@ function defaultSyncTtlMs(): number {
 function uncertainWriteMessage(sent: WriteChanges, cause: Error): string {
   const ids = [
     ...(sent.transaction ?? []).map((t) => t.id),
-    ...(sent.deletion ?? []).map((d) => d.id),
+    ...(sent.reminder ?? []).map((r) => r.id),
+    ...(sent.deletion ?? []).filter((d) => d.object !== "reminderMarker").map((d) => d.id),
     ...(sent.budget ?? []).map((b) => `budget ${b.date} ${b.tag ?? "uncategorized"}`),
   ];
+  // A series sends hundreds of markers; their count says enough
+  const markers =
+    (sent.reminderMarker?.length ?? 0) +
+    (sent.deletion ?? []).filter((d) => d.object === "reminderMarker").length;
+  if (markers > 0) ids.push(`${markers} reminder marker${markers > 1 ? "s" : ""}`);
   return (
     `ZenMoney did not confirm the change (${cause.message}), so it may or may not have been saved. ` +
     `Affected id${ids.length > 1 ? "s" : ""}: ${ids.join(", ")}. ` +
-    (sent.transaction?.length || sent.deletion?.length
-      ? "Do not repeat the call, which would write it again under a new id: run sync_data, then look the id up with list_transactions."
+    (sent.transaction?.length || sent.reminder?.length || sent.reminderMarker?.length || sent.deletion?.length
+      ? "Do not repeat the call, which would write it again under a new id: run sync_data, then look the id up with " +
+        (sent.reminder || sent.reminderMarker || sent.deletion?.some((d) => d.object === "reminder" || d.object === "reminderMarker")
+          ? "list_reminders (include_finished=true) and list_upcoming."
+          : "list_transactions.")
       : "A budget is keyed by month and category, so setting it again is safe.")
   );
 }
