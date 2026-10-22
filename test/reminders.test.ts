@@ -299,6 +299,30 @@ describe("reminder tools", () => {
     expect(state.reminderMarkers[0].state).toBe("processed");
   });
 
+  it("deletes a future marker the response to the last batch brings", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-03-20T12:00:00Z"));
+    const { api, state, call } = await setup({ reminder: [reminder()], reminderMarker: [marker({ id: "known", date: "2026-03-31" })] });
+    vi.mocked(api.diff).mockResolvedValueOnce(makeDiffResponse({ reminderMarker: [marker({ id: "late", date: "2026-04-30" })] }));
+    const result = await call("delete_reminder", { id: "reminder-1", confirm: true });
+    expect(result.isError).toBeFalsy();
+    expect(vi.mocked(api.diff).mock.calls[2][0].deletion).toEqual([expect.objectContaining({ object: "reminderMarker", id: "late" })]);
+    expect(state.reminders).toEqual([]);
+    expect(state.reminderMarkers).toEqual([]);
+    expect(getTextContent(result)).toContain("Deleted 2 future planned markers");
+  });
+
+  it("deletes what is left of a series deleted elsewhere", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-03-20T12:00:00Z"));
+    const { api, state, call } = await setup({ reminderMarker: [marker({ id: "orphan", date: "2026-03-31" })] });
+    expect(getTextContent(await call("delete_reminder", { id: "reminder-1" }))).toContain("what is left of a deleted series");
+    const result = await call("delete_reminder", { id: "reminder-1", confirm: true });
+    expect(result.isError).toBeFalsy();
+    expect(vi.mocked(api.diff).mock.calls[1][0].deletion).toEqual([expect.objectContaining({ object: "reminderMarker", id: "orphan" })]);
+    expect(state.reminderMarkers).toEqual([]);
+  });
+
   it("deletes a large series in batches without touching its processed markers", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-01-01T12:00:00Z"));

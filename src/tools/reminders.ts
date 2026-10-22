@@ -229,31 +229,33 @@ export function registerReminderTools(server: McpServer, state: ZenState) {
     inputSchema: { id: z.string().describe("Reminder id from list_reminders"), confirm: z.boolean().default(false) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
   }, async ({ id, confirm }, { signal }) => {
-    const target = state.reminders.find((r) => r.id === id);
-    if (!target) return toolError(`Reminder ${id} not found. Use list_reminders with include_finished=true.`);
-    const today = localDate(new Date());
     const planned = () => state.reminderMarkers.filter((m) => m.reminder === id && m.state === "planned" && m.date >= localDate(new Date()));
-    if (!confirm) return toolText(`Delete ${operationLine(state, target)} | id: ${id}, and ${planned().length} planned markers from ${today}? Nothing was deleted. Call delete_reminder with confirm=true.`);
+    const target = state.reminders.find((r) => r.id === id);
+    // A series deleted elsewhere may leave planned markers behind
+    if (!target && planned().length === 0) return toolError(`Reminder ${id} not found. Use list_reminders with include_finished=true.`);
+    const today = localDate(new Date());
+    if (!confirm) return toolText(`Delete ${target ? operationLine(state, target) : "what is left of a deleted series"} | id: ${id}, and ${planned().length} planned markers from ${today}? Nothing was deleted. Call delete_reminder with confirm=true.`);
     let removed = 0;
     try {
-      let finished = false;
-      while (!finished) {
+      // The response to a batch may bring markers written meanwhile, so go on
+      // until neither the series nor a future planned marker is left
+      while (state.reminders.some((r) => r.id === id) || planned().length > 0) {
         let sentIds: string[] = [];
+        let sentReminder = false;
         await state.write(() => {
           if (signal.aborted) throw new Error("Cancelled; no further deletions were sent.");
           const current = state.reminders.find((r) => r.id === id);
-          if (!current) throw new Error("The reminder was deleted meanwhile. Sync and inspect its remaining markers.");
           const pending = planned();
           const batch = pending.slice(0, BATCH_SIZE);
           const stamp = Math.floor(Date.now() / 1000);
           const deletion = batch.map((m) => ({ object: "reminderMarker", id: m.id, user: m.user, stamp }));
           sentIds = batch.map((m) => m.id);
-          finished = pending.length <= BATCH_SIZE;
-          if (finished) deletion.push({ object: "reminder", id, user: current.user, stamp });
+          sentReminder = current !== undefined && pending.length <= BATCH_SIZE;
+          if (current && sentReminder) deletion.push({ object: "reminder", id, user: current.user, stamp });
           return { deletion };
         });
         const remaining = new Set(state.reminderMarkers.map((m) => m.id));
-        if (sentIds.some((markerId) => remaining.has(markerId)) || (finished && state.reminders.some((r) => r.id === id))) {
+        if (sentIds.some((markerId) => remaining.has(markerId)) || (sentReminder && state.reminders.some((r) => r.id === id))) {
           throw new Error("ZenMoney kept a different version of a deleted object. Sync and inspect before retrying.");
         }
         removed += sentIds.length;
