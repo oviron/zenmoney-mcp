@@ -73,6 +73,19 @@ export function registerDeleteTools(server: McpServer, state: ZenState) {
           })),
         });
 
+        // The server answers with what it holds; a newer version of a
+        // transaction in that answer means it was not deleted
+        const kept = doomed.filter((tx) => state.findTransaction(tx.id));
+        if (kept.length > 0) {
+          const gone = doomed.filter((tx) => !kept.includes(tx));
+          return toolError(
+            `ZenMoney kept ${kept.length === 1 ? "this transaction" : "these transactions"} (changed elsewhere meanwhile):\n\n${kept.map((tx) => `- ${formatTransactionLine(state, state.findTransaction(tx.id)!)}`).join("\n")}` +
+              (gone.length > 0
+                ? `\n\nDeleted:\n\n${gone.map((tx) => `- ${formatTransactionLine(state, tx)}`).join("\n")}`
+                : "")
+          );
+        }
+
         const lines = doomed.map((tx) => `- ${formatTransactionLine(state, tx)}`);
         return toolText(
           `${doomed.length === 1 ? "Transaction deleted" : `${doomed.length} transactions deleted`}:\n\n${lines.join("\n")}\n\nThis cannot be undone. To put an operation back, add it again as a new transaction.`

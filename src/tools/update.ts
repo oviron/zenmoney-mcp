@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Account, Transaction } from "../api.js";
 import type { ZenState } from "../state.js";
 import { isoDate } from "../lib/dates.js";
-import { resolveAccountStrict, resolveTagStrict } from "../lib/resolve.js";
+import { checkStillValid, resolveAccountStrict, resolveTagStrict } from "../lib/resolve.js";
 import {
   describeChanges,
   formatTransactionLine,
@@ -269,12 +269,35 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
       const checked = buildUpdates();
       if (typeof checked === "string") return toolError(checked);
       let { originals, updates } = checked;
+      // Amounts are in the currencies the transactions had when the call was
+      // checked; a sync ahead in the queue may have moved them to others.
+      const amountGiven =
+        amount !== undefined || outcome_amount !== undefined || income_amount !== undefined;
+      const currencies = new Map(
+        updates.map((u) => [u.id, `${u.incomeInstrument}/${u.outcomeInstrument}`])
+      );
 
       try {
         await state.write(
           () => {
+            checkStillValid(
+              state,
+              [bothAccount, sourceAccount, targetAccount]
+                .filter((a): a is Account => a !== undefined)
+                .map((a) => ({ account: a, instrument: a.instrument ?? user.currency ?? 1 })),
+              tagIds
+            );
             const fresh = buildUpdates();
             if (typeof fresh === "string") throw new Error(fresh);
+            if (amountGiven) {
+              for (const u of fresh.updates) {
+                if (currencies.get(u.id) !== `${u.incomeInstrument}/${u.outcomeInstrument}`) {
+                  throw new Error(
+                    `Transaction ${u.id} changed its currency in ZenMoney meanwhile. Nothing was saved; check the amount and try again.`
+                  );
+                }
+              }
+            }
             ({ originals, updates } = fresh);
             return { transaction: updates };
           },

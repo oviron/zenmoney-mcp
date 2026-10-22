@@ -1880,6 +1880,10 @@ describe("delete_transaction", () => {
 
   it("should sync first when nothing is loaded yet", async () => {
     await setup({ synced: false, transactions: [EXPENSE] });
+    // The answer to the write: nothing else changed
+    vi.mocked(api.diff)
+      .mockResolvedValueOnce(makeDiffResponse({ transaction: [EXPENSE] }))
+      .mockResolvedValueOnce(emptyDiff(makeDiffResponse().serverTimestamp + 1));
 
     const result = await callTool("delete_transaction", { id: "tx-expense", confirm: true });
 
