@@ -11,6 +11,10 @@ Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Bra
 | `sync_data` | Refresh data now; other tools sync on their own when it is older than `ZENMONEY_SYNC_TTL` |
 | `list_accounts` | List wallets, cards, and cash accounts |
 | `list_categories` | List expense/income categories with hierarchy |
+| `add_category` | Create a category, optionally under a top-level parent; visibility defaults to true, budget flags follow it |
+| `update_category` | Change title, parent, visibility, budget flags or color; `parent: null` makes a category top-level |
+| `add_account` | Create a `cash`, `ccard` or `checking` account with an initial balance; currency defaults to the user's currency |
+| `update_account` | Change title, archive status, inclusion in the total balance, savings or card credit limit; adjust balances with a correction transaction |
 | `list_merchants` | List known merchants/payees |
 | `list_transactions` | List and filter recent transactions |
 | `add_expense` | Add an expense; `category` accepts a name/UUID or an array; `original_amount` + `original_currency` record a foreign-currency purchase; `payee` links an exact merchant name; optional UUID `id` prevents duplicate retries |
@@ -219,6 +223,32 @@ changing its amounts or currencies. For an amount change, pass `amount`,
 the ordinary account currency. Two supplied side amounts must be equal and
 positive. Account changes involving debt accounts are rejected; use `add_debt`
 to record a new debt.
+
+Category titles must be unique within the same parent, ignoring case. ZenMoney
+supports two levels: a category with children cannot become a child. New
+categories have no icon or picture, and `show_income` / `show_outcome` default to
+true. `budget_income` / `budget_outcome` default to `show_income` / `show_outcome`,
+so a new expense or income category counts in the budget on that side. The
+[API v8 documentation](https://github.com/zenmoney/ZenPlugins/wiki/ZenMoney-API#tag)
+defines these flags without defaults, and `get_budget` leaves a category whose
+flag is false out of the month's total.
+
+`add_account` creates an independent account without bank sync, SMS import or
+automatic balance corrections. `balance` defaults to 0 and also sets
+`startBalance`; `in_balance` defaults to true and `savings` to false. `currency`
+matches an instrument's `shortTitle` exactly, ignoring case. `credit_limit` must
+be nonnegative and is accepted only for `ccard`. Account titles must be unique
+among visible accounts, including archived ones. `update_account` preserves
+type, currency and balances, and refuses to archive a debt account. Catalog write
+confirmations show the saved values and warn when the server kept a different
+version. After an uncertain write, run `sync_data` and find the reported id in
+`list_categories` or `list_accounts` (`include_archived: true`) before retrying.
+
+There are no category or account deletion tools: deletion can cascade into
+transactions and budgets. Merchant editing is omitted because transaction
+creation handles merchant links and title changes are rarely needed. Split
+transactions are not supported by the local `Transaction` model, which has no
+amount allocation fields.
 
 ## Running this fork
 

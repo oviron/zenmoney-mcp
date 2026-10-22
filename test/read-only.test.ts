@@ -20,7 +20,8 @@ describe("read-only mode", () => {
     expect(all).toContain("add_expense");
     expect(readOnly).toContain("sync_data");
     expect(readOnly).toContain("list_transactions");
-    for (const name of ["add_expense", "add_income", "add_transfer", "add_debt", "update_transaction", "delete_transaction", "restore_transaction"]) {
+    for (const name of ["add_expense", "add_income", "add_transfer", "add_debt", "update_transaction", "delete_transaction", "restore_transaction", "add_category", "update_category", "add_account", "update_account"]) {
+      expect(all).toContain(name);
       expect(readOnly).not.toContain(name);
     }
     expect(readOnly.length).toBeGreaterThan(0);
