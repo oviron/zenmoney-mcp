@@ -293,6 +293,12 @@ export function registerTransactionTools(
       if ("error" in toMatch) return toolError(toMatch.error);
       const toAcc = toMatch.account;
 
+      if (fromAcc.id === toAcc.id) {
+        return toolError(
+          `Source and destination are the same account (${fromAcc.title}). A transfer needs two different accounts.`
+        );
+      }
+
       const user = state.getUser();
       if (!user) {
         return {
@@ -743,6 +749,9 @@ export function registerTransactionTools(
           if (targetAccount) {
             next.incomeAccount = targetAccount.id;
             next.incomeInstrument = targetAccount.instrument ?? user.currency ?? 1;
+          }
+          if (wasTransfer && next.incomeAccount === next.outcomeAccount) {
+            return `Transaction ${tx.id} is a transfer — from_account and to_account cannot be the same account.`;
           }
 
           if (amount !== undefined) {
