@@ -56,7 +56,7 @@ describe("reminder state", () => {
     await state.sync();
     vi.mocked(api.diff).mockRejectedValueOnce(new ZenMoneyError("timeout", true));
     await expect(state.write({ reminder: [reminder()], reminderMarker: [marker()] }))
-      .rejects.toThrow(/reminder-1, marker-1.*list_reminders.*list_upcoming/);
+      .rejects.toThrow(/reminder-1, 1 reminder marker.*list_reminders.*list_upcoming/);
     expect(state.reminders).toEqual([]);
     expect(state.reminderMarkers).toEqual([]);
   });

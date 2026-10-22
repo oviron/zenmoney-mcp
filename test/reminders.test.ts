@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ZenMoneyError, type DiffResponse } from "../src/api.js";
-import { CHECKING, FOOD, makeDiffResponse, makeTransaction } from "./fixtures.js";
+import { CHECKING, DEBT_ACCOUNT, FOOD, makeDiffResponse, makeTransaction } from "./fixtures.js";
 import { connectPair, createMcpPair, createSyncedState, getTextContent } from "./helpers.js";
 import { reminder, marker } from "./reminder-fixtures.js";
 
@@ -26,6 +26,24 @@ afterEach(async () => {
 });
 
 const expense = { type: "expense", account: "Checking", amount: 50, start_date: "2026-01-31" };
+
+describe("reminder review fixes", () => {
+  it("refuses a debt account", async () => {
+    const { api, call } = await setup({ account: [CHECKING, DEBT_ACCOUNT] });
+    const result = await call("add_reminder", { type: "transfer", from_account: "Checking", to_account: "Debts", amount: 5, start_date: "2026-01-31" });
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("Use add_debt");
+    expect(api.diff).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts markers instead of listing their ids when the outcome is unknown", async () => {
+    const { api, call } = await setup();
+    vi.mocked(api.diff).mockRejectedValueOnce(new ZenMoneyError("timed out", true));
+    const text = getTextContent(await call("add_reminder", { ...expense, interval: "day", end_date: "2026-03-31" }));
+    expect(text).toContain("60 reminder markers");
+    expect(text.length).toBeLessThan(2000);
+  });
+});
 
 describe("reminder tools", () => {
   it("registers read-only listings and explicit write annotations", async () => {

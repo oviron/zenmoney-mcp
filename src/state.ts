@@ -354,9 +354,13 @@ function uncertainWriteMessage(sent: WriteChanges, cause: Error): string {
   const ids = [
     ...(sent.transaction ?? []).map((t) => t.id),
     ...(sent.reminder ?? []).map((r) => r.id),
-    ...(sent.reminderMarker ?? []).map((m) => m.id),
-    ...(sent.deletion ?? []).map((d) => d.id),
+    ...(sent.deletion ?? []).filter((d) => d.object !== "reminderMarker").map((d) => d.id),
   ];
+  // A series sends hundreds of markers; their count says enough
+  const markers =
+    (sent.reminderMarker?.length ?? 0) +
+    (sent.deletion ?? []).filter((d) => d.object === "reminderMarker").length;
+  if (markers > 0) ids.push(`${markers} reminder marker${markers > 1 ? "s" : ""}`);
   return (
     `ZenMoney did not confirm the change (${cause.message}), so it may or may not have been saved. ` +
     `Affected id${ids.length > 1 ? "s" : ""}: ${ids.join(", ")}. ` +

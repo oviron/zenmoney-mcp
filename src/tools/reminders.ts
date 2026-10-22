@@ -155,6 +155,9 @@ export function registerReminderTools(server: McpServer, state: ZenState) {
       const from = fromMatch.account;
       const to = toMatch.account;
       if (transfer && from.id === to.id) throw new Error("A transfer needs two different accounts.");
+      if (from.type === "debt" || to.type === "debt") {
+        throw new Error("Debt accounts cannot be planned here: a debt needs both sides in the ordinary account's currency and a counterparty. Use add_debt when it happens.");
+      }
       const outcomeInstrument = from.instrument ?? user.currency;
       const incomeInstrument = to.instrument ?? user.currency;
       if (transfer && input.amount !== undefined && input.outcome_amount !== undefined && input.amount !== input.outcome_amount) {
