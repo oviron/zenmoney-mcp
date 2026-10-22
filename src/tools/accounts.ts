@@ -24,7 +24,7 @@ export function registerAccountTools(server: McpServer, state: ZenState) {
     async ({ include_archived }) => {
 
       const accounts = include_archived
-        ? state.accounts
+        ? state.getVisibleAccounts()
         : state.getActiveAccounts();
 
       const lines = accounts.map((a) => {
