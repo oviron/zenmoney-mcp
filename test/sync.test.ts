@@ -1,10 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { ZenMoneyAPI } from "../src/api.js";
 import { ZenState } from "../src/state.js";
-import { registerSyncTools } from "../src/tools/sync.js";
+import { createServer } from "../src/server.js";
 import { makeDiffResponse } from "./fixtures.js";
 import { getTextContent } from "./helpers.js";
 
@@ -17,8 +16,7 @@ async function setup() {
 
   const state = new ZenState(api);
 
-  const server = new McpServer({ name: "test", version: "1.0.0" });
-  registerSyncTools(server, state);
+  const server = createServer(api, state);
 
   const client = new Client({ name: "test-client", version: "1.0.0" });
   const [ct, st] = InMemoryTransport.createLinkedPair();

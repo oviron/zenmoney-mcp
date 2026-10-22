@@ -1,17 +1,25 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZenState } from "../state.js";
+import { toolError, toolText } from "../lib/result.js";
 
 export function registerSyncTools(server: McpServer, state: ZenState) {
-  server.tool(
+  server.registerTool(
     "sync_data",
-    "Sync data with ZenMoney. Run this first before using other tools. Use force_full=true to re-download everything.",
     {
-      force_full: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe("Force a full sync instead of incremental"),
+      title: "Sync Data",
+      description: "Sync data with ZenMoney. Run this first before using other tools. Use force_full=true to re-download everything.",
+      inputSchema: {
+        force_full: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Force a full sync instead of incremental"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ force_full }) => {
       try {
@@ -26,24 +34,9 @@ export function registerSyncTools(server: McpServer, state: ZenState) {
           serverTimestamp: state.serverTimestamp,
         };
 
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Sync complete. Summary:\n${JSON.stringify(summary, null, 2)}`,
-            },
-          ],
-        };
+        return toolText(`Sync complete. Summary:\n${JSON.stringify(summary, null, 2)}`);
       } catch (error) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
-            },
-          ],
-          isError: true,
-        };
+        return toolError(`Sync failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   );

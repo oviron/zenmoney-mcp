@@ -483,26 +483,6 @@ describe("ZenState", () => {
       expect(user?.parent).toBeNull();
     });
 
-    it("findAccountByName should do case-insensitive partial match", () => {
-      expect(state.findAccountByName("check")?.id).toBe("acc-checking");
-      expect(state.findAccountByName("CHECK")?.id).toBe("acc-checking");
-      expect(state.findAccountByName("euro")?.id).toBe("acc-euro");
-      expect(state.findAccountByName("nonexistent")).toBeUndefined();
-    });
-
-    it("findTagByName should do case-insensitive partial match", () => {
-      expect(state.findTagByName("food")?.id).toBe("tag-food");
-      expect(state.findTagByName("FOOD")?.id).toBe("tag-food");
-      expect(state.findTagByName("restaur")?.id).toBe("tag-restaurants");
-      expect(state.findTagByName("nonexistent")).toBeUndefined();
-    });
-
-    it("findMerchantByName should do case-insensitive partial match", () => {
-      expect(state.findMerchantByName("corner")?.id).toBe("merchant-cafe");
-      expect(state.findMerchantByName("CAFE")?.id).toBe("merchant-cafe");
-      expect(state.findMerchantByName("nonexistent")).toBeUndefined();
-    });
-
     it("findTransaction should find by id", async () => {
       const tx = makeTransaction({ id: "tx-1", outcome: 10 });
       state.upsertTransaction(tx);

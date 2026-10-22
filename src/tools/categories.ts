@@ -1,22 +1,22 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZenState } from "../state.js";
+import { notSyncedError, toolText } from "../lib/result.js";
 
 export function registerCategoryTools(server: McpServer, state: ZenState) {
-  server.tool(
+  server.registerTool(
     "list_categories",
-    "List all expense/income categories (tags) with their hierarchy. Sync must be done first.",
-    {},
+    {
+      title: "List Categories",
+      description: "List all expense/income categories (tags) with their hierarchy. Sync must be done first.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
     async () => {
       if (!state.isSynced) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: "Data not synced yet. Please run sync_data first.",
-            },
-          ],
-          isError: true,
-        };
+        return notSyncedError();
       }
 
       const hierarchy = state.getTagHierarchy();
@@ -34,52 +34,39 @@ export function registerCategoryTools(server: McpServer, state: ZenState) {
         }
       }
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text:
-              lines.length > 0
-                ? `Categories (${state.tags.length}):\n\n${lines.join("\n")}`
-                : "No categories found.",
-          },
-        ],
-      };
+      return toolText(
+        lines.length > 0
+          ? `Categories (${state.tags.length}):\n\n${lines.join("\n")}`
+          : "No categories found."
+      );
     }
   );
 
-  server.tool(
+  server.registerTool(
     "list_merchants",
-    "List known merchants/payees. Sync must be done first.",
-    {},
+    {
+      title: "List Merchants",
+      description: "List known merchants/payees. Sync must be done first.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
     async () => {
       if (!state.isSynced) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: "Data not synced yet. Please run sync_data first.",
-            },
-          ],
-          isError: true,
-        };
+        return notSyncedError();
       }
 
       const lines = state.merchants.map(
         (m) => `- **${m.title}** — id: \`${m.id}\``
       );
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text:
-              lines.length > 0
-                ? `Merchants (${lines.length}):\n\n${lines.join("\n")}`
-                : "No merchants found.",
-          },
-        ],
-      };
+      return toolText(
+        lines.length > 0
+          ? `Merchants (${lines.length}):\n\n${lines.join("\n")}`
+          : "No merchants found."
+      );
     }
   );
 }
