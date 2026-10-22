@@ -9,12 +9,13 @@ import {
   type Transaction,
   type Reminder,
   type ReminderMarker,
+  type Budget,
   type User,
   type DiffRequest,
   type DiffResponse,
 } from "./api.js";
 
-type WriteChanges = Pick<DiffRequest, "transaction" | "reminder" | "reminderMarker" | "deletion">;
+type WriteChanges = Pick<DiffRequest, "transaction" | "reminder" | "reminderMarker" | "deletion" | "tag" | "account" | "budget">;
 
 export class ZenState {
   private api: ZenMoneyAPI;
@@ -28,6 +29,8 @@ export class ZenState {
   reminders: Reminder[] = [];
   reminderMarkers: ReminderMarker[] = [];
   users: User[] = [];
+  /** Keyed by budgetKey(date, tag): budgets have no id of their own. */
+  private budgets = new Map<string, Budget>();
   /**
    * Transactions the server reports as deleted. Kept apart from
    * `transactions`, which only ever holds live ones, so that a listing can
@@ -39,6 +42,12 @@ export class ZenState {
   /** When the state last caught up with the server (Date.now()). */
   private lastSync = 0;
   private refreshing: Promise<void> | undefined;
+  /**
+   * A write went out but its outcome is unknown, so the cache may lack what
+   * the server now holds. The next write catches up before building its
+   * changes, or it would send stale fields over the ones that landed.
+   */
+  private unconfirmed = false;
   /** How old the state may get before a tool call syncs it first. */
   readonly syncTtlMs: number;
 
@@ -92,6 +101,7 @@ export class ZenState {
           "reminder",
           "reminderMarker",
           "user",
+          "budget",
         ];
       }
 
@@ -101,6 +111,7 @@ export class ZenState {
       if (forceFull) this.clear();
       this.applyDiff(resp);
       this.lastSync = Date.now();
+      this.unconfirmed = false;
       return resp;
     });
     this.synced = true;
@@ -127,6 +138,15 @@ export class ZenState {
     beforeApply?: () => void
   ): Promise<DiffResponse> {
     return this.serialize(async () => {
+      if (this.unconfirmed) {
+        const caught = await this.api.diff({
+          currentClientTimestamp: Math.floor(Date.now() / 1000),
+          serverTimestamp: this.serverTimestamp,
+        });
+        this.applyDiff(caught);
+        this.lastSync = Date.now();
+        this.unconfirmed = false;
+      }
       const sent = typeof changes === "function" ? changes() : changes;
       let resp: DiffResponse;
       try {
@@ -137,6 +157,9 @@ export class ZenState {
         });
       } catch (error) {
         if (error instanceof ZenMoneyError && error.uncertain) {
+          this.unconfirmed = true;
+          // Read-only tools sync before answering, too
+          this.lastSync = 0;
           throw new ZenMoneyError(uncertainWriteMessage(sent, error), true);
         }
         throw error;
@@ -178,6 +201,7 @@ export class ZenState {
     this.reminders = [];
     this.reminderMarkers = [];
     this.deletedTransactions.clear();
+    this.budgets.clear();
     this.users = [];
   }
 
@@ -198,6 +222,7 @@ export class ZenState {
     this.mergeTransactions(resp.transaction);
     this.mergeEntities("reminders", resp.reminder, (e) => e.id);
     this.mergeEntities("reminderMarkers", resp.reminderMarker, (e) => e.id);
+    for (const b of resp.budget ?? []) this.upsertBudget(b);
 
     if (resp.deletion) {
       for (const del of resp.deletion) {
@@ -329,6 +354,26 @@ export class ZenState {
     this.mergeEntities("reminderMarkers", markers, (m) => m.id);
   }
 
+  upsertTag(tag: Tag): void {
+    this.mergeEntities("tags", [tag], (t) => t.id);
+  }
+
+  upsertAccount(account: Account): void {
+    this.mergeEntities("accounts", [account], (a) => a.id);
+  }
+
+  getBudgets(): Budget[] {
+    return Array.from(this.budgets.values());
+  }
+
+  findBudget(date: string, tag: string | null): Budget | undefined {
+    return this.budgets.get(budgetKey(date, tag));
+  }
+
+  upsertBudget(budget: Budget): void {
+    this.budgets.set(budgetKey(budget.date, budget.tag), budget);
+  }
+
   getTagHierarchy(): { parent: Tag; children: Tag[] }[] {
     const parentTags = this.tags.filter((t) => !t.parent);
     return parentTags.map((parent) => ({
@@ -344,6 +389,10 @@ export class ZenState {
  */
 export const ZERRO_DATA_ACCOUNT = "🤖 [Zerro Data]";
 
+function budgetKey(date: string, tag: string | null): string {
+  return `${date}#${tag ?? ""}`;
+}
+
 function defaultSyncTtlMs(): number {
   const raw = process.env.ZENMONEY_SYNC_TTL?.trim();
   const seconds = raw ? Number(raw) : NaN;
@@ -354,19 +403,30 @@ function uncertainWriteMessage(sent: WriteChanges, cause: Error): string {
   const ids = [
     ...(sent.transaction ?? []).map((t) => t.id),
     ...(sent.reminder ?? []).map((r) => r.id),
+    ...(sent.tag ?? []).map((t) => t.id),
+    ...(sent.account ?? []).map((a) => a.id),
     ...(sent.deletion ?? []).filter((d) => d.object !== "reminderMarker").map((d) => d.id),
+    ...(sent.budget ?? []).map((b) => `budget ${b.date} ${b.tag ?? "uncategorized"}`),
   ];
   // A series sends hundreds of markers; their count says enough
   const markers =
     (sent.reminderMarker?.length ?? 0) +
     (sent.deletion ?? []).filter((d) => d.object === "reminderMarker").length;
   if (markers > 0) ids.push(`${markers} reminder marker${markers > 1 ? "s" : ""}`);
+  const lists = new Set<string>();
+  if (sent.transaction?.length) lists.add("list_transactions");
+  if (sent.tag?.length) lists.add("list_categories");
+  if (sent.account?.length) lists.add("list_accounts (include_archived: true)");
+  if (sent.reminder?.length || sent.reminderMarker?.length) lists.add("list_reminders (include_finished=true) and list_upcoming");
+  for (const d of sent.deletion ?? []) {
+    lists.add(d.object === "tag" ? "list_categories" : d.object === "account" ? "list_accounts (include_archived: true)"
+      : d.object === "reminder" || d.object === "reminderMarker" ? "list_reminders (include_finished=true) and list_upcoming" : "list_transactions");
+  }
   return (
     `ZenMoney did not confirm the change (${cause.message}), so it may or may not have been saved. ` +
     `Affected id${ids.length > 1 ? "s" : ""}: ${ids.join(", ")}. ` +
-    "Do not repeat the call, which would write it again under a new id: run sync_data, then look the id up with " +
-    (sent.reminder || sent.reminderMarker || sent.deletion?.some((d) => d.object === "reminder" || d.object === "reminderMarker")
-      ? "list_reminders (include_finished=true) and list_upcoming."
-      : "list_transactions.")
+    (lists.size > 0
+      ? `Do not repeat the call, which would write it again under a new id: run sync_data, then look the id up with ${[...lists].join(" / ")}.`
+      : "A budget is keyed by month and category, so setting it again is safe.")
   );
 }

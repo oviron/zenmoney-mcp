@@ -317,7 +317,8 @@ describe.each([
     expect(getTextContent(first)).toContain("may or may not have been saved");
     const second = await call(tool, { ...args, id: ID });
     expect(second.isError).toBeFalsy();
-    expect(vi.mocked(api.diff).mock.calls.map(([req]) => req.transaction![0].id)).toEqual([ID, ID]);
+    // The retry syncs first: the lost write may have landed
+    expect(vi.mocked(api.diff).mock.calls.map(([req]) => req.transaction?.[0].id)).toEqual([ID, undefined, ID]);
     expect(state.transactions.filter((tx) => tx.id === ID)).toHaveLength(1);
   });
 

@@ -9,8 +9,10 @@ import { registerTransactionTools } from "./tools/transactions.js";
 import { registerSuggestTools } from "./tools/suggest.js";
 import { syncBeforeEachTool } from "./lib/fresh.js";
 import { registerSummaryTools } from "./tools/summaries.js";
+import { registerBudgetTools } from "./tools/budgets.js";
 import { registerDebtTools } from "./tools/debts.js";
 import { registerReminderTools } from "./tools/reminders.js";
+import { registerCatalogTools } from "./tools/catalogs.js";
 
 // package.json sits one level up both from src/ and from build/
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
@@ -30,11 +32,13 @@ export function createServer(
   registerSyncTools(server, state);
   registerAccountTools(server, state);
   registerCategoryTools(server, state);
+  registerCatalogTools(server, state);
   registerTransactionTools(server, state);
   registerDebtTools(server, state);
   registerSuggestTools(server, api, state);
   registerSummaryTools(server, state);
   registerReminderTools(server, state);
+  registerBudgetTools(server, state);
 
   return server;
 }
