@@ -10,12 +10,17 @@ import { syncBeforeEachTool } from "./lib/fresh.js";
 import { registerSummaryTools } from "./tools/summaries.js";
 import { registerDebtTools } from "./tools/debts.js";
 
-export function createServer(api: ZenMoneyAPI, state: ZenState) {
+export function createServer(
+  api: ZenMoneyAPI,
+  state: ZenState,
+  options: { readOnly?: boolean } = {}
+) {
   const server = new McpServer({
     name: "zenmoney-mcp",
     version: "0.4.1-oviron.1",
   });
 
+  if (options.readOnly ?? readOnlyFromEnv()) onlyReadOnlyTools(server);
   syncBeforeEachTool(server, state, ["sync_data"]);
   registerSyncTools(server, state);
   registerAccountTools(server, state);
@@ -26,4 +31,21 @@ export function createServer(api: ZenMoneyAPI, state: ZenState) {
   registerSummaryTools(server, state);
 
   return server;
+}
+
+/**
+ * Leave out every tool that can change data in ZenMoney, for clients such
+ * as chat bots that should only read. sync_data stays: it changes only the
+ * local cache.
+ */
+function onlyReadOnlyTools(server: McpServer) {
+  const register = server.registerTool.bind(server);
+  server.registerTool = ((name: string, config: { annotations?: { readOnlyHint?: boolean } }, handler: unknown) =>
+    config.annotations?.readOnlyHint === true
+      ? (register as (...args: unknown[]) => unknown)(name, config, handler)
+      : undefined) as typeof server.registerTool;
+}
+
+function readOnlyFromEnv(): boolean {
+  return ["1", "true", "yes"].includes(process.env.ZENMONEY_READ_ONLY?.trim().toLowerCase() ?? "");
 }

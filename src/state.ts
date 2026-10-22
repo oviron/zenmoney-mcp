@@ -260,8 +260,13 @@ export class ZenState {
     return Array.from(this.deletedTransactions.values());
   }
 
+  /** Accounts a person keeps money on, without zerro's service account. */
+  getVisibleAccounts(): Account[] {
+    return this.accounts.filter((a) => a.title !== ZERRO_DATA_ACCOUNT);
+  }
+
   getActiveAccounts(): Account[] {
-    return this.accounts.filter((a) => !a.archive);
+    return this.getVisibleAccounts().filter((a) => !a.archive);
   }
 
   getInstrument(id: number): Instrument | undefined {
@@ -308,6 +313,12 @@ export class ZenState {
     }));
   }
 }
+
+/**
+ * zerro (zerro.app) keeps its settings in reminders on an account of this
+ * name; it holds no money and is no place to record an operation.
+ */
+export const ZERRO_DATA_ACCOUNT = "🤖 [Zerro Data]";
 
 function defaultSyncTtlMs(): number {
   const raw = process.env.ZENMONEY_SYNC_TTL?.trim();
