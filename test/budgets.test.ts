@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { ZenState } from "../src/state.js";
-import { TOTAL_BUDGET_TAG, type Budget, type DiffResponse, type ZenMoneyAPI } from "../src/api.js";
+import { TOTAL_BUDGET_TAG, type Budget, type DiffResponse, type ReminderMarker, type ZenMoneyAPI } from "../src/api.js";
 import { CHECKING, EURO_CARD, makeDiffResponse, makeTransaction } from "./fixtures.js";
 import { createMcpPair, connectPair, getTextContent } from "./helpers.js";
+import { marker } from "./reminder-fixtures.js";
 
 function budget(overrides: Partial<Budget>): Budget {
   return {
@@ -60,10 +61,10 @@ function empty(serverTimestamp: number, overrides: Partial<DiffResponse> = {}) {
   });
 }
 
-async function setup(budgets = BUDGETS) {
+async function setup(budgets = BUDGETS, reminderMarker: ReminderMarker[] = []) {
   const api = {
     diff: vi.fn().mockResolvedValueOnce(
-      makeDiffResponse({ account: [CHECKING, EURO_CARD, { ...CHECKING, id: "acc-savings", title: "Savings" }], transaction: TRANSACTIONS, budget: budgets })
+      makeDiffResponse({ account: [CHECKING, EURO_CARD, { ...CHECKING, id: "acc-savings", title: "Savings" }], transaction: TRANSACTIONS, budget: budgets, reminderMarker })
     ),
     suggest: vi.fn().mockResolvedValue([]),
   } as unknown as ZenMoneyAPI;
@@ -130,6 +131,63 @@ describe("get_budget", () => {
     const result = await call("get_budget", { month: "2026-03" });
     expect(result.isError).toBe(true);
     expect(getTextContent(result)).toContain("account acc-euro of transaction t3 is missing");
+  });
+
+  describe("planned operations", () => {
+    const planned = (id: string, overrides: Partial<ReminderMarker> = {}) =>
+      marker({ id, date: "2026-03-20", outcome: 40, tag: ["tag-food"], ...overrides });
+
+    it("adds the month's planned operations to a plan that is not fixed", async () => {
+      const { call } = await setup(
+        [budget({ tag: "tag-food", outcome: 100 }), budget({ tag: "tag-restaurants", outcome: 60, outcomeLock: true })],
+        [
+          planned("m1"),
+          // 50 EUR at a rate of 0.92 against USD is 46 USD
+          planned("m2", { outcome: 50, outcomeInstrument: 2, incomeInstrument: 2, outcomeAccount: "acc-euro", incomeAccount: "acc-euro" }),
+          planned("m3", { tag: ["tag-restaurants"], outcome: 15 }),
+        ]
+      );
+      const text = getTextContent(await call("get_budget", { month: "2026-03" }));
+      expect(text).toContain("- Food: plan 186.00 USD (100.00 USD set + 86.00 USD planned operations) | spent 101.00 USD | left 85.00 USD");
+      // A fixed plan is the amount itself
+      expect(text).toContain("- Food / Restaurants: plan 60.00 USD | spent 71.00 USD");
+    });
+
+    it("shows a plan made only of planned operations", async () => {
+      const { call } = await setup(
+        [budget({ tag: "tag-food", outcome: 0 })],
+        [planned("m1"), planned("m2", { tag: ["tag-salary"], outcome: 0, income: 900 }), planned("m3", { tag: null, outcome: 5 })]
+      );
+      const text = getTextContent(await call("get_budget", { month: "2026-03" }));
+      expect(text).toContain("- All categories: plan 45.00 USD (45.00 USD planned operations) | spent 108.00 USD");
+      expect(text).toContain("- Food: plan 40.00 USD (40.00 USD planned operations) | spent 101.00 USD");
+      expect(text).toContain("- Uncategorized: plan 5.00 USD (5.00 USD planned operations) | spent 7.00 USD");
+      expect(text).toContain("Income:\n- All categories: plan 900.00 USD (900.00 USD planned operations)");
+      expect(text).toContain("- Salary: plan 900.00 USD (900.00 USD planned operations) | received 1000.00 USD");
+    });
+
+    it("leaves out what a budget does not count", async () => {
+      const { state, call } = await setup(
+        [budget({ tag: "tag-food", outcome: 100 })],
+        [
+          planned("other-month", { date: "2026-04-01" }),
+          planned("processed", { state: "processed" }),
+          planned("transfer", { incomeAccount: "acc-savings", income: 40 }),
+          planned("zerro", { outcomeAccount: "acc-zerro", incomeAccount: "acc-zerro" }),
+        ]
+      );
+      state.accounts.push({ ...state.accounts[0], id: "acc-zerro", title: "🤖 [Zerro Data]" });
+      const text = getTextContent(await call("get_budget", { month: "2026-03" }));
+      expect(text).toContain("- Food: plan 100.00 USD | spent 101.00 USD");
+      expect(text).not.toContain("planned operations");
+    });
+
+    it("refuses to answer when an account of a planned operation is missing", async () => {
+      const { call } = await setup(BUDGETS, [planned("m1", { outcomeAccount: "acc-gone", incomeAccount: "acc-gone" })]);
+      const result = await call("get_budget", { month: "2026-03" });
+      expect(result.isError).toBe(true);
+      expect(getTextContent(result)).toContain("account acc-gone of planned operation m1 is missing");
+    });
   });
 
   it("rejects a malformed month", async () => {

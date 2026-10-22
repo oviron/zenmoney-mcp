@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { TOTAL_BUDGET_TAG, type Budget, type Instrument, type Tag } from "../api.js";
+import { TOTAL_BUDGET_TAG, type Budget, type Instrument, type ReminderMarker, type Tag, type Transaction } from "../api.js";
 import type { ZenState } from "../state.js";
 import { localDate } from "../lib/dates.js";
 import { checkStillValid, resolveTagStrict } from "../lib/resolve.js";
@@ -11,13 +11,14 @@ const month = z
   .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Month must be in YYYY-MM format");
 
 type Fact = { outcome: number; income: number };
+type Operation = Pick<Transaction | ReminderMarker, "id" | "tag" | "income" | "outcome" | "incomeAccount" | "outcomeAccount" | "incomeInstrument" | "outcomeInstrument">;
 
 export function registerBudgetTools(server: McpServer, state: ZenState) {
   server.registerTool(
     "get_budget",
     {
       title: "Get Budget",
-      description: "Show a month's budget against what was actually spent and received, in your main currency at current rates. A category's fact includes its subcategories; transfers, debts and accounts outside the balance are left out. Answers \"How much is left for food this month?\"",
+      description: "Show a month's budget against what was actually spent and received, in your main currency at current rates. A category's fact includes its subcategories; transfers, debts and accounts outside the balance are left out. Unless a plan is fixed with set_budget, it also counts the month's planned operations (reminders) in that category, as ZenMoney does. Answers \"How much is left for food this month?\"",
       inputSchema: {
         month: month.optional().describe("Month as YYYY-MM. Defaults to the current month."),
         category: z.string().optional().describe("Only this category (name or UUID) and its subcategories."),
@@ -43,37 +44,71 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
 
       const tags = new Map(state.tags.map((t) => [t.id, t]));
       const facts = new Map<string, Fact>();
-      const add = (key: string, side: keyof Fact, amount: number) => {
-        const fact = facts.get(key) ?? { outcome: 0, income: 0 };
+      // Planned operations, by their exact category: an unlocked plan adds them
+      const planned = new Map<string, Fact>();
+      const add = (sums: Map<string, Fact>, key: string, side: keyof Fact, amount: number) => {
+        const fact = sums.get(key) ?? { outcome: 0, income: 0 };
         fact[side] += amount;
-        facts.set(key, fact);
+        sums.set(key, fact);
       };
-      for (const tx of state.transactions) {
-        if (tx.deleted || !tx.date.startsWith(monthKey)) continue;
-        if (tx.incomeAccount !== tx.outcomeAccount) continue;
-        const side: keyof Fact | undefined = tx.outcome > 0 && tx.income === 0 ? "outcome"
-          : tx.income > 0 && tx.outcome === 0 ? "income" : undefined;
-        if (!side) continue;
-        const account = state.accounts.find((a) => a.id === tx.outcomeAccount);
+      // An expense or income in the main currency, or undefined for what a budget leaves out
+      const count = (op: Operation, kind: string): { side: keyof Fact; amount: number } | undefined => {
+        if (op.incomeAccount !== op.outcomeAccount) return undefined;
+        const side: keyof Fact | undefined = op.outcome > 0 && op.income === 0 ? "outcome"
+          : op.income > 0 && op.outcome === 0 ? "income" : undefined;
+        if (!side) return undefined;
+        const account = state.accounts.find((a) => a.id === op.outcomeAccount);
         if (!account) {
-          return toolError(`Cannot compute the budget: account ${tx.outcomeAccount} of transaction ${tx.id} is missing. Run sync_data first.`);
+          throw new Error(`Cannot compute the budget: account ${op.outcomeAccount} of ${kind} ${op.id} is missing. Run sync_data first.`);
         }
-        if (account.type === "debt" || account.inBalance === false) continue;
-        const instrument = state.getInstrument(side === "outcome" ? tx.outcomeInstrument : tx.incomeInstrument);
+        if (account.type === "debt" || account.inBalance === false) return undefined;
+        const instrument = state.getInstrument(side === "outcome" ? op.outcomeInstrument : op.incomeInstrument);
         if (!instrument || !(instrument.rate > 0)) {
-          return toolError(`Cannot compute the budget: currency of transaction ${tx.id} is missing or has no rate.`);
+          throw new Error(`Cannot compute the budget: currency of ${kind} ${op.id} is missing or has no rate.`);
         }
-        const amount = (side === "outcome" ? tx.outcome : tx.income) * (instrument.rate / base.rate);
-        add(TOTAL_BUDGET_TAG, side, amount);
-        // ZenMoney books an operation under its first category
-        const first = tx.tag?.[0];
-        if (!first) add("", side, amount);
-        else for (const id of categoryPath(first, tags)) add(id, side, amount);
+        return { side, amount: (side === "outcome" ? op.outcome : op.income) * (instrument.rate / base.rate) };
+      };
+      // zerro keeps its settings in reminders on its service account
+      const visible = new Set(state.getVisibleAccounts().map((a) => a.id));
+      const hidden = new Set(state.accounts.filter((a) => !visible.has(a.id)).map((a) => a.id));
+      try {
+        for (const tx of state.transactions) {
+          if (tx.deleted || !tx.date.startsWith(monthKey)) continue;
+          const counted = count(tx, "transaction");
+          if (!counted) continue;
+          add(facts, TOTAL_BUDGET_TAG, counted.side, counted.amount);
+          // ZenMoney books an operation under its first category
+          const first = tx.tag?.[0];
+          if (!first) add(facts, "", counted.side, counted.amount);
+          else for (const id of categoryPath(first, tags)) add(facts, id, counted.side, counted.amount);
+        }
+        for (const m of state.reminderMarkers) {
+          if (m.state !== "planned" || !m.date.startsWith(monthKey) || hidden.has(m.outcomeAccount)) continue;
+          const counted = count(m, "planned operation");
+          if (!counted) continue;
+          add(planned, TOTAL_BUDGET_TAG, counted.side, counted.amount);
+          add(planned, m.tag?.[0] ?? "", counted.side, counted.amount);
+        }
+      } catch (error) {
+        return toolError(error instanceof Error ? error.message : String(error));
       }
 
-      const rows = state
-        .getBudgets()
-        .filter((b) => b.date === date && (b.outcome !== 0 || b.income !== 0))
+      // No budget object is a plan of 0 that is not locked
+      const stored = state.getBudgets().filter((b) => b.date === date);
+      const unset = [...planned.keys()]
+        .filter((key) => !stored.some((b) => (b.tag ?? "") === key))
+        .map((key): Budget => ({ user: 0, changed: 0, date, tag: key === "" ? null : key, income: 0, incomeLock: false, outcome: 0, outcomeLock: false }));
+      const plan = (b: Budget, side: keyof Fact) => {
+        const locked = side === "outcome" ? b.outcomeLock : b.incomeLock;
+        return { set: b[side], planned: locked ? 0 : planned.get(b.tag ?? "")?.[side] ?? 0 };
+      };
+      const effective = (b: Budget, side: keyof Fact) => {
+        const p = plan(b, side);
+        return p.set + p.planned;
+      };
+
+      const rows = [...stored, ...unset]
+        .filter((b) => effective(b, "outcome") !== 0 || effective(b, "income") !== 0)
         .filter((b) => !categoryId || (b.tag !== null && b.tag !== TOTAL_BUDGET_TAG && categoryPath(b.tag, tags).includes(categoryId)));
       const label = (b: Budget) =>
         b.tag === TOTAL_BUDGET_TAG ? "All categories"
@@ -85,11 +120,11 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
       const money = (n: number) => `${n.toFixed(2)} ${base.shortTitle}`;
       const section = (side: keyof Fact, title: string, verb: string) => {
         const lines = rows
-          .filter((b) => b[side] !== 0)
+          .filter((b) => effective(b, side) !== 0)
           .map((b) => {
-            const plan = b[side];
+            const { set, planned: scheduled } = plan(b, side);
             const fact = facts.get(b.tag ?? "")?.[side] ?? 0;
-            const rest = plan - fact;
+            const rest = set + scheduled - fact;
             const status = side === "outcome"
               ? rest >= 0 ? `left ${money(rest)}` : `over by ${money(-rest)}`
               : rest > 0 ? `still expected ${money(rest)}` : `above plan by ${money(-rest)}`;
@@ -97,10 +132,11 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
             // name theirs instead of guessing how the app adds them up
             const children = b.tag && b.tag !== TOTAL_BUDGET_TAG
               ? rows.filter((c) => c.tag && c.tag !== b.tag && tags.get(c.tag)?.parent === b.tag)
-                .reduce((sum, c) => sum + c[side], 0)
+                .reduce((sum, c) => sum + effective(c, side), 0)
               : 0;
             const childNote = children !== 0 ? ` | subcategory plans ${money(children)}` : "";
-            return `- ${label(b)}: plan ${money(plan)} | ${verb} ${money(fact)} | ${status}${childNote}`;
+            const parts = scheduled !== 0 ? ` (${set !== 0 ? `${money(set)} set + ` : ""}${money(scheduled)} planned operations)` : "";
+            return `- ${label(b)}: plan ${money(set + scheduled)}${parts} | ${verb} ${money(fact)} | ${status}${childNote}`;
           });
         return lines.length > 0 ? `${title}:\n${lines.join("\n")}` : undefined;
       };
