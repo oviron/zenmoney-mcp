@@ -56,6 +56,7 @@ export class ZenState {
       }
 
       const resp = await this.api.diff(req);
+      if (forceFull) this.clear();
       this.applyDiff(resp);
       return resp;
     });
@@ -98,6 +99,22 @@ export class ZenState {
     const result = this.queue.then(exchange);
     this.queue = result.catch(() => undefined);
     return result;
+  }
+
+  /**
+   * A full sync returns the complete current state, so it replaces what we
+   * hold instead of being merged into it: merging would keep accounts,
+   * categories and transactions the server no longer has. Called only once
+   * the response is in, so a failed request leaves the old state intact.
+   */
+  private clear(): void {
+    this.accounts = [];
+    this.tags = [];
+    this.merchants = [];
+    this.companies = [];
+    this.instruments = [];
+    this.transactions = [];
+    this.users = [];
   }
 
   /**
