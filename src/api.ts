@@ -11,8 +11,8 @@ export interface DiffRequest {
   tag?: any[];
   merchant?: any[];
   budget?: any[];
-  reminder?: any[];
-  reminderMarker?: any[];
+  reminder?: Reminder[];
+  reminderMarker?: ReminderMarker[];
   transaction?: any[];
   deletion?: any[];
 }
@@ -26,8 +26,8 @@ export interface DiffResponse {
   tag: Tag[];
   merchant: Merchant[];
   budget: any[];
-  reminder: any[];
-  reminderMarker: any[];
+  reminder: Reminder[];
+  reminderMarker: ReminderMarker[];
   transaction: Transaction[];
   deletion: any[];
 }
@@ -102,6 +102,34 @@ export interface Company {
   country: number | null;
   fullTitle: string | null;
   www: string | null;
+}
+
+export interface Reminder {
+  id: string;
+  changed: number;
+  user: number;
+  incomeInstrument: number;
+  incomeAccount: string;
+  income: number;
+  outcomeInstrument: number;
+  outcomeAccount: string;
+  outcome: number;
+  tag: string[] | null;
+  merchant: string | null;
+  payee: string | null;
+  comment: string | null;
+  interval: "day" | "week" | "month" | "year" | null;
+  step: number | null;
+  points: number[] | null;
+  startDate: string;
+  endDate: string | null;
+  notify: boolean;
+}
+
+export interface ReminderMarker extends Omit<Reminder, "interval" | "step" | "points" | "startDate" | "endDate"> {
+  reminder: string;
+  date: string;
+  state: "planned" | "processed" | "deleted";
 }
 
 export interface Transaction {
