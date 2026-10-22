@@ -28,7 +28,10 @@ function resolveFilters(state: ZenState, input: { account?: string; category?: s
     if ("error" in resolved) throw new Error(resolved.error);
     tagId = resolved.tag.id;
   }
+  // zerro keeps its settings in reminders on its service account
+  const visible = new Set(state.getVisibleAccounts().map((a) => a.id));
   return (r: Reminder | ReminderMarker) =>
+    visible.has(r.incomeAccount) && visible.has(r.outcomeAccount) &&
     (!accountId || r.incomeAccount === accountId || r.outcomeAccount === accountId) &&
     (!tagId || r.tag?.includes(tagId));
 }

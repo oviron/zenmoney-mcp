@@ -36,6 +36,17 @@ describe("reminder review fixes", () => {
     expect(api.diff).toHaveBeenCalledTimes(1);
   });
 
+  it("hides zerro's settings kept in reminders on its service account", async () => {
+    const zerro = { ...CHECKING, id: "acc-zerro", title: "🤖 [Zerro Data]" };
+    const { call } = await setup({
+      account: [CHECKING, zerro],
+      reminder: [reminder(), reminder({ id: "zerro-settings", incomeAccount: "acc-zerro", outcomeAccount: "acc-zerro" })],
+      reminderMarker: [marker({ id: "zerro-marker", reminder: "zerro-settings", incomeAccount: "acc-zerro", outcomeAccount: "acc-zerro", date: "2099-01-01" })],
+    });
+    expect(getTextContent(await call("list_reminders", { include_finished: true }))).not.toContain("zerro-settings");
+    expect(getTextContent(await call("list_upcoming", { days: 36600 }))).not.toContain("zerro-marker");
+  });
+
   it("counts markers instead of listing their ids when the outcome is unknown", async () => {
     const { api, call } = await setup();
     vi.mocked(api.diff).mockRejectedValueOnce(new ZenMoneyError("timed out", true));
