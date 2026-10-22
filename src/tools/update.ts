@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Account, Transaction } from "../api.js";
 import type { ZenState } from "../state.js";
 import { isoDate } from "../lib/dates.js";
+import { debtAccounts } from "../lib/debts.js";
 import { checkStillValid, resolveAccountStrict, resolveMerchantId, resolveTagsStrict } from "../lib/resolve.js";
 import {
   describeChanges,
@@ -16,7 +17,7 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
     "update_transaction",
     {
       title: "Update Transaction",
-      description: "Change an existing transaction: its category, amount, date, payee, comment or account. Pass a single id or a list of ids from list_transactions. A change of account currency requires a new amount for each nonzero side whose currency changes, and clears that side's original amount/currency. A single-account transaction cannot have both income and outcome: to convert an expense to income, pass outcome_amount: 0 and income_amount (reverse for income to expense).",
+      description: "Change an existing transaction: its category, amount, date, payee, comment or account. Pass a single id or a list of ids from list_transactions. Debt accounts cannot be assigned or changed here; use add_debt for a new debt. Existing debts accept metadata edits and amount changes: amount or either side sets both sides equally in the ordinary account currency. A change of account currency requires a new amount for each nonzero side whose currency changes, and clears that side's original amount/currency. A single-account transaction cannot have both income and outcome: to convert an expense to income, pass outcome_amount: 0 and income_amount (reverse for income to expense).",
       inputSchema: {
         id: z
           .union([z.string(), z.array(z.string())])
@@ -32,7 +33,7 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
           .positive()
           .optional()
           .describe(
-            "New amount for an expense or income. For transfers use outcome_amount/income_amount instead."
+            "New amount for an expense, income or debt. For a debt both sides are set equally in the ordinary account currency. For ordinary transfers use outcome_amount/income_amount instead."
           ),
         outcome_amount: z
           .number()
@@ -168,12 +169,20 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
         targetAccount = match.account;
       }
 
+      const amountGiven = amount !== undefined || outcome_amount !== undefined || income_amount !== undefined;
+      const accountGiven = account !== undefined || from_account !== undefined || to_account !== undefined;
+
       // Reads the transactions from state, so it runs once to validate and
       // again at this write's turn in the queue: an exchange queued before
       // it may have changed or deleted them in the meantime.
       const buildUpdates = ():
         | { originals: Transaction[]; updates: Transaction[] }
         | string => {
+        if ([bothAccount, sourceAccount, targetAccount].some((a) =>
+          a && state.accounts.some((current) => current.id === a.id && current.type === "debt")
+        )) {
+          return "Debt accounts cannot be assigned in update_transaction. Use add_debt with a counterparty instead.";
+        }
         const originals: Transaction[] = [];
         const missing: string[] = [];
         for (const txId of ids) {
@@ -191,6 +200,16 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
         for (const tx of originals) {
           const next: Transaction = { ...tx, changed: now };
           const wasTransfer = tx.incomeAccount !== tx.outcomeAccount;
+          const debt = debtAccounts(state, tx);
+          const hasDebtSide = state.accounts.some((a) =>
+            (a.id === tx.incomeAccount || a.id === tx.outcomeAccount) && a.type === "debt"
+          );
+          if (hasDebtSide && accountGiven) {
+            return `Transaction ${tx.id} is a debt. Its accounts cannot be changed here; use add_debt with a counterparty for a new debt.`;
+          }
+          if (hasDebtSide && amountGiven && !debt?.account) {
+            return `Transaction ${tx.id} must have exactly one debt account and one ordinary account to change its amount.`;
+          }
 
           if (tagIds !== undefined) next.tag = tagIds;
           if (date !== undefined) next.date = date;
@@ -222,20 +241,36 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
             return `Transaction ${tx.id} is a transfer — from_account and to_account cannot be the same account.`;
           }
 
-          if (amount !== undefined) {
-            if (next.incomeAccount !== next.outcomeAccount) {
-              return `Transaction ${tx.id} is a transfer — use outcome_amount and/or income_amount instead of amount.`;
+          if (debt?.account && amountGiven) {
+            if (outcome_amount !== undefined && income_amount !== undefined && outcome_amount !== income_amount) {
+              return `Transaction ${tx.id} is a debt: income_amount and outcome_amount must be equal. Use amount to set both sides.`;
             }
-            if (tx.outcome > 0 && tx.income === 0) {
-              next.outcome = amount;
-            } else if (tx.income > 0 && tx.outcome === 0) {
-              next.income = amount;
-            } else {
-              return `Cannot tell whether ${amount} is an expense or an income for transaction ${tx.id}. Pass outcome_amount or income_amount instead.`;
+            const debtAmount = amount ?? outcome_amount ?? income_amount!;
+            if (debtAmount <= 0) return `Transaction ${tx.id} is a debt: both amounts must be positive.`;
+            next.income = debtAmount;
+            next.outcome = debtAmount;
+            next.incomeInstrument = debt.account.instrument ?? user.currency ?? 1;
+            next.outcomeInstrument = next.incomeInstrument;
+            next.opIncome = null;
+            next.opIncomeInstrument = null;
+            next.opOutcome = null;
+            next.opOutcomeInstrument = null;
+          } else {
+            if (amount !== undefined) {
+              if (next.incomeAccount !== next.outcomeAccount) {
+                return `Transaction ${tx.id} is a transfer — use outcome_amount and/or income_amount instead of amount.`;
+              }
+              if (tx.outcome > 0 && tx.income === 0) {
+                next.outcome = amount;
+              } else if (tx.income > 0 && tx.outcome === 0) {
+                next.income = amount;
+              } else {
+                return `Cannot tell whether ${amount} is an expense or an income for transaction ${tx.id}. Pass outcome_amount or income_amount instead.`;
+              }
             }
+            if (outcome_amount !== undefined) next.outcome = outcome_amount;
+            if (income_amount !== undefined) next.income = income_amount;
           }
-          if (outcome_amount !== undefined) next.outcome = outcome_amount;
-          if (income_amount !== undefined) next.income = income_amount;
 
           if (next.incomeAccount === next.outcomeAccount && next.income > 0 && next.outcome > 0) {
             const hint = tx.outcome > 0 && tx.income === 0
@@ -246,14 +281,14 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
             return `Transaction ${tx.id} cannot have both income and outcome on the same account. ${hint} For a transfer, use different from_account/to_account.`;
           }
 
-          if (next.outcomeInstrument !== tx.outcomeInstrument) {
+          if (!debt && next.outcomeInstrument !== tx.outcomeInstrument) {
             if (next.outcome > 0 && amount === undefined && outcome_amount === undefined) {
               return `Transaction ${tx.id} changes outcome currency. Pass outcome_amount in the new account currency (or amount for an expense). The old amount cannot be reused across currencies.`;
             }
             next.opOutcome = null;
             next.opOutcomeInstrument = null;
           }
-          if (next.incomeInstrument !== tx.incomeInstrument) {
+          if (!debt && next.incomeInstrument !== tx.incomeInstrument) {
             if (next.income > 0 && amount === undefined && income_amount === undefined) {
               return `Transaction ${tx.id} changes income currency. Pass income_amount in the new account currency (or amount for an income). The old amount cannot be reused across currencies.`;
             }
@@ -279,11 +314,13 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
       let { originals, updates } = checked;
       // Amounts are in the currencies the transactions had when the call was
       // checked; a sync ahead in the queue may have moved them to others.
-      const amountGiven =
-        amount !== undefined || outcome_amount !== undefined || income_amount !== undefined;
       const currencies = new Map(
         updates.map((u) => [u.id, `${u.incomeInstrument}/${u.outcomeInstrument}`])
       );
+      const debtPairs = amountGiven ? originals.map((tx) => debtAccounts(state, tx)).filter((d) => d !== undefined) : [];
+      const debtChecks = debtPairs.flatMap(({ debt, account }) => [debt, account])
+        .filter((a): a is Account => a !== undefined)
+        .map((a) => ({ account: a, instrument: a.instrument ?? user.currency ?? 1 }));
 
       try {
         await state.write(
@@ -292,9 +329,16 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
               state,
               [bothAccount, sourceAccount, targetAccount]
                 .filter((a): a is Account => a !== undefined)
-                .map((a) => ({ account: a, instrument: a.instrument ?? user.currency ?? 1 })),
+                .map((a) => ({ account: a, instrument: a.instrument ?? user.currency ?? 1 }))
+                .concat(debtChecks),
               tagIds
             );
+            for (const { debt, account } of debtPairs) {
+              if (state.accounts.find((a) => a.id === debt.id)?.type !== "debt" ||
+                  (account && state.accounts.find((a) => a.id === account.id)?.type === "debt")) {
+                throw new Error("A debt account changed its type in ZenMoney meanwhile. Nothing was saved; check the transaction and try again.");
+              }
+            }
             const fresh = buildUpdates();
             if (typeof fresh === "string") throw new Error(fresh);
             if (amountGiven) {

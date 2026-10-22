@@ -15,8 +15,10 @@ Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Bra
 | `list_transactions` | List and filter recent transactions |
 | `add_expense` | Add an expense; `category` accepts a name/UUID or an array; `original_amount` + `original_currency` record a foreign-currency purchase; `payee` links an exact merchant name; optional UUID `id` prevents duplicate retries |
 | `add_income` | Add income with the same category, original-currency, merchant and UUID `id` options as `add_expense` |
-| `add_transfer` | Transfer between accounts, including cross-currency; `amount` aliases `outcome_amount` (must match if both are given); optional UUID `id` prevents duplicate retries |
-| `update_transaction` | Change category, amounts, date, payee, comment or accounts; a change of account currency requires a new amount for that side and clears its original amount/currency; a single-account operation cannot have both income and outcome |
+| `add_transfer` | Transfer between ordinary accounts, including cross-currency; use `add_debt` for debt accounts; `amount` aliases `outcome_amount` (must match if both are given); optional UUID `id` prevents duplicate retries |
+| `add_debt` | Record `lend`, `borrow`, `repay_received` or `repay_sent`; requires `counterparty` and an ordinary, non-archived `account`; both sides use that account's currency; optional UUID `id` prevents duplicate retries |
+| `list_debts` | Balances by counterparty and currency, without conversion; filter by `counterparty`; `include_settled` defaults to false |
+| `update_transaction` | Change category, amounts, date, payee, comment or accounts; a change of account currency requires a new amount for that side and clears its original amount/currency; existing debts accept metadata edits and equal amounts, but their accounts cannot be changed here |
 | `delete_transaction` | Delete one or more transactions by id, as the ZenMoney apps do (requires `confirm: true`) |
 | `restore_transaction` | Bring deleted transactions back as copies with new ids |
 | `summarize_transactions` | Totals by category, payee, account or month in the main currency |
@@ -142,7 +144,7 @@ ignoring case (for example, `USD`); unknown or ambiguous codes and the account's
 own currency are errors. `payee` links a known merchant only when the full name
 matches, ignoring case.
 
-All three creation tools accept an optional UUID `id`. After an error saying
+All four creation tools accept an optional UUID `id`. After an error saying
 "may or may not have been saved", retry with the same `id` from the error and the
 same parameters. A cached transaction with that id is shown without writing it
 again, including if it was deleted. Omitting `id` generates a new UUID and is
@@ -153,6 +155,24 @@ in that currency: `amount` for an expense/income, or `outcome_amount` and/or
 `income_amount` for the changed transfer sides. To convert an expense to income
 on the same account, pass `outcome_amount: 0` and `income_amount`; to convert income
 to an expense, pass `income_amount: 0` and `outcome_amount`.
+
+For debts, `add_debt` selects the system debt account automatically. Use the same
+`counterparty` for a loan and its repayments. It is saved as `payee` and links a
+known merchant on an exact name match, ignoring case. Both sides carry equal
+amounts in the ordinary account currency, as required by the
+[ZenMoney transaction protocol](https://github.com/zenmoney/ZenPlugins/wiki/ZenMoney-API#transaction).
+`list_debts` shows `owes you` or `you owe` for each counterparty and currency,
+without conversion. Names come from the merchant title, then `payee`, then
+`(unknown)`; names differing only in case share a balance. Its `counterparty`
+filter matches a substring, ignoring case. `include_settled: true` shows zero
+balances. Deleted operations are excluded.
+
+`update_transaction` can edit a debt's category, date, comment or payee without
+changing its amounts or currencies. For an amount change, pass `amount`,
+`outcome_amount` or `income_amount`; both sides are normalized to that value in
+the ordinary account currency. Two supplied side amounts must be equal and
+positive. Account changes involving debt accounts are rejected; use `add_debt`
+to record a new debt.
 
 ## Running this fork
 

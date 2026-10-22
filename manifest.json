@@ -52,6 +52,8 @@
     { "name": "add_expense", "description": "Add an expense transaction." },
     { "name": "add_income", "description": "Add an income transaction." },
     { "name": "add_transfer", "description": "Transfer between accounts, including cross-currency." },
+    { "name": "add_debt", "description": "Record money lent, borrowed or repaid with a counterparty in the ordinary account currency." },
+    { "name": "list_debts", "description": "Show balances by counterparty and currency, without conversion; settled debts are hidden by default." },
     { "name": "update_transaction", "description": "Change an existing transaction: category, amount, date, payee, comment or account." },
     { "name": "delete_transaction", "description": "Delete one or more transactions by id, as the ZenMoney apps do." },
     { "name": "restore_transaction", "description": "Bring deleted transactions back as copies with new ids." },

@@ -1,37 +1,12 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { Transaction } from "../api.js";
 import type { ZenState } from "../state.js";
 import { isoDate } from "../lib/dates.js";
+import { alreadyExists, checkNewId, creationId, findExisting, retryDescription, TransactionExists } from "../lib/creation.js";
 import { checkStillValid, resolveAccountStrict, resolveMerchantId, resolveTagsStrict } from "../lib/resolve.js";
-import { accountTitle, currencyOf, formatTransactionLine, serverVersionWarning, tagTitles } from "../lib/format.js";
+import { accountTitle, currencyOf, serverVersionWarning, tagTitles } from "../lib/format.js";
 import { toolError, toolText } from "../lib/result.js";
-
-const creationId = z.uuid().transform((id) => id.toLowerCase()).optional()
-  .describe("Optional transaction UUID. Reuse the same id and parameters when retrying after an uncertain write; omit only for a new operation.");
-const retryDescription = ' If a write "may or may not have been saved", retry with the same id from the error and the same parameters to avoid a duplicate. If that id is already cached, returns the existing transaction without writing.';
-
-function findExisting(state: ZenState, id: string | undefined): Transaction | undefined {
-  if (id === undefined) return undefined;
-  return state.transactions.find((t) => t.id.toLowerCase() === id)
-    ?? state.getDeletedTransactions().find((t) => t.id.toLowerCase() === id);
-}
-
-function alreadyExists(state: ZenState, transaction: Transaction) {
-  return toolText(`Transaction already exists${transaction.deleted ? " (deleted)" : ""}:\n${formatTransactionLine(state, transaction)}`);
-}
-
-class TransactionExists extends Error {
-  constructor(readonly transaction: Transaction) {
-    super(`Transaction ${transaction.id} already exists.`);
-  }
-}
-
-function checkNewId(state: ZenState, id: string): void {
-  const existing = findExisting(state, id);
-  if (existing) throw new TransactionExists(existing);
-}
 
 function resolveOriginal(
   state: ZenState,
@@ -273,7 +248,7 @@ export function registerCreateTools(server: McpServer, state: ZenState) {
     "add_transfer",
     {
       title: "Add Transfer",
-      description: "Transfer money between two accounts in ZenMoney. For cross-currency transfers, specify both outcome_amount (source) and income_amount (destination). For same-currency transfers, just use outcome_amount (or amount as alias). If amount and outcome_amount are both given, they must be equal." + retryDescription,
+      description: "Transfer money between two ordinary accounts in ZenMoney. For debt accounts use add_debt. For cross-currency transfers, specify both outcome_amount (source) and income_amount (destination). For same-currency transfers, just use outcome_amount (or amount as alias). If amount and outcome_amount are both given, they must be equal." + retryDescription,
       inputSchema: {
         id: creationId,
         from_account: z.string().describe("Source account name or UUID"),
@@ -306,6 +281,10 @@ export function registerCreateTools(server: McpServer, state: ZenState) {
       const toMatch = resolveAccountStrict(state, to_account, "Destination account");
       if ("error" in toMatch) return toolError(toMatch.error);
       const toAcc = toMatch.account;
+
+      if (fromAcc.type === "debt" || toAcc.type === "debt") {
+        return toolError("Debt accounts cannot be used in add_transfer. Use add_debt with a counterparty instead.");
+      }
 
       if (fromAcc.id === toAcc.id) {
         return toolError(
@@ -385,6 +364,9 @@ export function registerCreateTools(server: McpServer, state: ZenState) {
               ],
               null
             );
+            if (state.accounts.some((a) => (a.id === fromAcc.id || a.id === toAcc.id) && a.type === "debt")) {
+              throw new Error("An account is now a debt account. Use add_debt with a counterparty instead.");
+            }
             return { transaction: [transaction] };
           },
           () => state.upsertTransaction(transaction)

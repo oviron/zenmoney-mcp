@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DiffResponse } from "../src/api.js";
 import { ZenMoneyError } from "../src/api.js";
 import { ZenState } from "../src/state.js";
-import { EUR, EURO_CARD, SAVINGS, makeDiffResponse, makeTransaction } from "./fixtures.js";
+import { DEBT_ACCOUNT, EUR, EURO_CARD, SAVINGS, makeDiffResponse, makeTransaction } from "./fixtures.js";
 import { connectPair, createMcpPair, createMockApi, getTextContent } from "./helpers.js";
 
 const EXPENSE = makeTransaction({
@@ -33,6 +33,7 @@ beforeEach(async () => {
   api = createMockApi({ transaction: [EXPENSE, INCOME, TRANSFER] });
   state = new ZenState(api);
   await state.sync();
+  state.accounts.push({ ...DEBT_ACCOUNT });
   vi.mocked(api.diff).mockClear().mockResolvedValue(empty());
   pair = await createMcpPair(api, state);
   await connectPair(pair);
@@ -263,6 +264,7 @@ describe.each([
   ["add_expense", { account: "Checking", amount: 100, date: DATE }],
   ["add_income", { account: "Checking", amount: 100, date: DATE }],
   ["add_transfer", { from_account: "Checking", to_account: "Savings", amount: 100, date: DATE }],
+  ["add_debt", { direction: "lend", account: "Euro Card", amount: 100, counterparty: "Alice", date: DATE }],
 ])("%s idempotent creation", (tool, args) => {
   it("sends the supplied UUID", async () => {
     const result = await call(tool, { ...args, id: ID });
