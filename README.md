@@ -99,6 +99,7 @@ further changes. Upcoming listings cover future dates only.
 | `ZENMONEY_TOKEN` | — | API token, required |
 | `ZENMONEY_SYNC_TTL` | `30` | Seconds the cached data stays fresh; a tool call after that syncs first. `0` syncs before every call |
 | `ZENMONEY_TIMEOUT_MS` | `30000` | How long one API request may take |
+| `ZENMONEY_API_URL` | `https://api.zenmoney.ru` | `https://api.zenmoney.app` where the `.ru` domain is blocked; no other address is accepted, so the token goes only to ZenMoney |
 | `ZENMONEY_READ_ONLY` | off | `true`, `1` or `yes` registers only the tools that read, for clients that must not change anything |
 
 ## Prerequisites

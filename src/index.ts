@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import "dotenv/config";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { ZenMoneyAPI } from "./api.js";
+import { ZenMoneyAPI, apiBaseFromEnv } from "./api.js";
 import { ZenState } from "./state.js";
 import { createServer } from "./server.js";
 
@@ -14,7 +14,15 @@ if (!token) {
   process.exit(1);
 }
 
-const api = new ZenMoneyAPI(token);
+let base: string;
+try {
+  base = apiBaseFromEnv();
+} catch (error) {
+  console.error((error as Error).message);
+  process.exit(1);
+}
+
+const api = new ZenMoneyAPI(token, undefined, base);
 const state = new ZenState(api);
 
 const server = createServer(api, state);

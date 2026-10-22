@@ -1,4 +1,14 @@
-const API_BASE = "https://api.zenmoney.ru";
+// ZenMoney answers on both domains; zerro offers .app where .ru is blocked.
+// Only these two get the token.
+export const API_BASES = ["https://api.zenmoney.ru", "https://api.zenmoney.app"] as const;
+
+/** The API address from ZENMONEY_API_URL, .ru when unset; throws on any other address. */
+export function apiBaseFromEnv(value = process.env.ZENMONEY_API_URL): string {
+  const base = value?.trim().replace(/\/+$/, "");
+  if (!base) return API_BASES[0];
+  if ((API_BASES as readonly string[]).includes(base)) return base;
+  throw new Error(`ZENMONEY_API_URL must be one of: ${API_BASES.join(", ")}.`);
+}
 
 export interface DiffRequest {
   currentClientTimestamp: number;
@@ -239,10 +249,12 @@ export const TOKEN_HELP = "Get a fresh token at https://zerro.app/token and set 
 export class ZenMoneyAPI {
   private token: string;
   private timeoutMs: number;
+  private base: string;
 
-  constructor(token: string, timeoutMs = defaultTimeoutMs()) {
+  constructor(token: string, timeoutMs = defaultTimeoutMs(), base: string = API_BASES[0]) {
     this.token = token;
     this.timeoutMs = timeoutMs;
+    this.base = base;
   }
 
   private async request<T>(
@@ -263,7 +275,7 @@ export class ZenMoneyAPI {
         );
       let response: Response;
       try {
-        response = await fetch(`${API_BASE}${path}`, {
+        response = await fetch(`${this.base}${path}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
