@@ -22,8 +22,12 @@ export async function createSyncedState(diffResponse?: Partial<DiffResponse>) {
   return { api, state };
 }
 
-export async function createMcpPair(api: ZenMoneyAPI, state: ZenState) {
-  const server = createServer(api, state);
+export async function createMcpPair(
+  api: ZenMoneyAPI,
+  state: ZenState,
+  options?: Parameters<typeof createServer>[2]
+) {
+  const server = createServer(api, state, options);
   const client = new Client({ name: "test-client", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 

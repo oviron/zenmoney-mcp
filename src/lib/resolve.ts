@@ -77,7 +77,7 @@ export function resolveAccountStrict(
   nameOrId: string,
   label = "Account"
 ): { account: Account } | { error: string } {
-  const r = resolveStrict(state.accounts, nameOrId, (a) => !a.archive);
+  const r = resolveStrict(state.getVisibleAccounts(), nameOrId, (a) => !a.archive);
   if ("match" in r) return { account: r.match };
   if (r.candidates.length > 0) {
     return { error: ambiguous(label, nameOrId, r.candidates, "account id") };
