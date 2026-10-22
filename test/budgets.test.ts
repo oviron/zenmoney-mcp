@@ -1,0 +1,206 @@
+import { describe, it, expect, vi } from "vitest";
+import { ZenState } from "../src/state.js";
+import { TOTAL_BUDGET_TAG, type Budget, type DiffResponse, type ZenMoneyAPI } from "../src/api.js";
+import { CHECKING, EURO_CARD, makeDiffResponse, makeTransaction } from "./fixtures.js";
+import { createMcpPair, connectPair, getTextContent } from "./helpers.js";
+
+function budget(overrides: Partial<Budget>): Budget {
+  return {
+    changed: 1000,
+    user: 1,
+    tag: "tag-food",
+    date: "2026-03-01",
+    income: 0,
+    incomeLock: false,
+    outcome: 0,
+    outcomeLock: false,
+    ...overrides,
+  };
+}
+
+const TRANSACTIONS = [
+  makeTransaction({ id: "t1", outcome: 30, tag: ["tag-food"], date: "2026-03-02" }),
+  makeTransaction({ id: "t2", outcome: 25, tag: ["tag-restaurants"], date: "2026-03-10" }),
+  // 50 EUR at a rate of 0.92 against USD is 46 USD
+  makeTransaction({
+    id: "t3",
+    outcome: 50,
+    outcomeInstrument: 2,
+    incomeInstrument: 2,
+    outcomeAccount: "acc-euro",
+    incomeAccount: "acc-euro",
+    tag: ["tag-restaurants"],
+    date: "2026-03-11",
+  }),
+  makeTransaction({ id: "t4", income: 1000, tag: ["tag-salary"], date: "2026-03-05" }),
+  makeTransaction({ id: "t5", outcome: 7, date: "2026-03-06" }),
+  // Another month, a transfer: not counted
+  makeTransaction({ id: "t6", outcome: 99, tag: ["tag-food"], date: "2026-02-28" }),
+  makeTransaction({ id: "t7", outcome: 10, income: 10, incomeAccount: "acc-savings", tag: ["tag-food"], date: "2026-03-03" }),
+];
+
+const BUDGETS = [
+  budget({ tag: "tag-food", outcome: 200, outcomeLock: true }),
+  budget({ tag: "tag-restaurants", outcome: 60, outcomeLock: true }),
+  budget({ tag: "tag-salary", income: 1200, incomeLock: true }),
+  budget({ tag: TOTAL_BUDGET_TAG, outcome: 500, outcomeLock: true }),
+  budget({ tag: "tag-food", date: "2026-02-01", outcome: 1, outcomeLock: true }),
+];
+
+function empty(serverTimestamp: number, overrides: Partial<DiffResponse> = {}) {
+  return makeDiffResponse({
+    serverTimestamp,
+    instrument: [],
+    company: [],
+    user: [],
+    account: [],
+    tag: [],
+    merchant: [],
+    ...overrides,
+  });
+}
+
+async function setup(budgets = BUDGETS) {
+  const api = {
+    diff: vi.fn().mockResolvedValueOnce(
+      makeDiffResponse({ account: [CHECKING, EURO_CARD, { ...CHECKING, id: "acc-savings", title: "Savings" }], transaction: TRANSACTIONS, budget: budgets })
+    ),
+    suggest: vi.fn().mockResolvedValue([]),
+  } as unknown as ZenMoneyAPI;
+  const state = new ZenState(api);
+  await state.sync();
+  vi.mocked(api.diff).mockResolvedValue(empty(1700000001));
+  const pair = await createMcpPair(api, state);
+  await connectPair(pair);
+  const call = (name: string, args: Record<string, unknown>) =>
+    pair.client.callTool({ name, arguments: args });
+  return { api, state, call };
+}
+
+describe("budget sync", () => {
+  it("asks for budgets on a full sync and stores them by month and category", async () => {
+    const { api, state } = await setup();
+    expect(vi.mocked(api.diff).mock.calls[0][0].forceFetch).toContain("budget");
+    expect(state.getBudgets()).toHaveLength(5);
+    expect(state.findBudget("2026-03-01", "tag-food")?.outcome).toBe(200);
+  });
+
+  it("replaces a budget the next sync brings", async () => {
+    const { api, state } = await setup();
+    vi.mocked(api.diff).mockResolvedValueOnce(
+      empty(1700000002, { budget: [budget({ tag: "tag-food", outcome: 250, changed: 2000 })] })
+    );
+    await state.sync();
+    expect(state.findBudget("2026-03-01", "tag-food")?.outcome).toBe(250);
+    expect(state.getBudgets()).toHaveLength(5);
+  });
+});
+
+describe("get_budget", () => {
+  it("compares plans with facts, subcategories and other currencies included", async () => {
+    const { call } = await setup();
+    const text = getTextContent(await call("get_budget", { month: "2026-03" }));
+    expect(text).toContain("Budget for 2026-03 | USD");
+    expect(text).toContain("- All categories: plan 500.00 USD | spent 108.00 USD | left 392.00 USD");
+    expect(text).toContain("- Food: plan 200.00 USD | spent 101.00 USD | left 99.00 USD | subcategory plans 60.00 USD");
+    expect(text).toContain("- Food / Restaurants: plan 60.00 USD | spent 71.00 USD | over by 11.00 USD");
+    expect(text).toContain("Income:\n- Salary: plan 1200.00 USD | received 1000.00 USD | still expected 200.00 USD");
+    expect(text).toContain("This month: spent 108.00 USD, received 1000.00 USD");
+    expect(text.indexOf("All categories")).toBeLessThan(text.indexOf("- Food"));
+  });
+
+  it("narrows to a category and its subcategories", async () => {
+    const { call } = await setup();
+    const text = getTextContent(await call("get_budget", { month: "2026-03", category: "Restaurants" }));
+    expect(text).toContain("Food / Restaurants");
+    expect(text).not.toContain("- Food:");
+    expect(text).not.toContain("All categories");
+    expect(text).toContain("Restaurants this month: spent 71.00 USD");
+  });
+
+  it("says when a month has no budget", async () => {
+    const { call } = await setup();
+    const text = getTextContent(await call("get_budget", { month: "2026-04" }));
+    expect(text).toContain("No budget set for 2026-04.");
+  });
+
+  it("rejects a malformed month", async () => {
+    const { call } = await setup();
+    const result = await call("get_budget", { month: "2026-13" });
+    expect(result.isError).toBe(true);
+  });
+});
+
+describe("set_budget", () => {
+  it("writes a locked plan and keeps the other side", async () => {
+    const { api, state, call } = await setup();
+    const result = await call("set_budget", { month: "2026-03", category: "Food", income: 50 });
+    expect(result.isError).toBeFalsy();
+    const sent = vi.mocked(api.diff).mock.calls[1][0].budget![0];
+    expect(sent).toMatchObject({ tag: "tag-food", date: "2026-03-01", outcome: 200, outcomeLock: true, income: 50, incomeLock: true, user: 1 });
+    expect(state.findBudget("2026-03-01", "tag-food")?.income).toBe(50);
+    expect(getTextContent(result)).toBe("Budget for Food, 2026-03:\n- Expenses: 200.00 USD\n- Income: 50.00 USD (was none)");
+  });
+
+  it("creates a total budget for a new month", async () => {
+    const { api, call } = await setup();
+    await call("set_budget", { month: "2026-05", total: true, outcome: 900 });
+    expect(vi.mocked(api.diff).mock.calls[1][0].budget![0]).toMatchObject({
+      tag: TOTAL_BUDGET_TAG,
+      date: "2026-05-01",
+      outcome: 900,
+      outcomeLock: true,
+      income: 0,
+      incomeLock: false,
+    });
+  });
+
+  it("removes a plan with 0", async () => {
+    const { api, call } = await setup();
+    const result = await call("set_budget", { month: "2026-03", category: "Restaurants", outcome: 0 });
+    expect(vi.mocked(api.diff).mock.calls[1][0].budget![0]).toMatchObject({ outcome: 0, outcomeLock: false });
+    expect(getTextContent(result)).toContain("- Expenses: none (was 60.00 USD)");
+  });
+
+  it.each([
+    [{ month: "2026-03", outcome: 5 }, "Pass either category or total: true."],
+    [{ month: "2026-03", category: "Food", total: true, outcome: 5 }, "Pass either category or total: true."],
+    [{ month: "2026-03", category: "Food" }, "Pass outcome, income or both."],
+  ])("refuses %o", async (args, message) => {
+    const { api, call } = await setup();
+    const result = await call("set_budget", args);
+    expect(getTextContent(result)).toBe(message);
+    expect(api.diff).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a category deleted by a sync ahead of it", async () => {
+    const { api, state, call } = await setup();
+    let answer!: (resp: DiffResponse) => void;
+    vi.mocked(api.diff).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    const sync = state.sync();
+    const pending = call("set_budget", { month: "2026-03", category: "Food", outcome: 5 });
+    await vi.waitFor(() => expect(api.diff).toHaveBeenCalledTimes(2));
+    answer(empty(1700000002, { deletion: [{ id: "tag-food", object: "tag", stamp: 1, user: 1 }] }));
+    await sync;
+    expect(getTextContent(await pending)).toContain("Category tag-food was deleted in ZenMoney meanwhile");
+    expect(api.diff).toHaveBeenCalledTimes(2);
+  });
+
+  it("says a retry is safe when the outcome is unknown", async () => {
+    const { api, call } = await setup();
+    const { ZenMoneyError } = await import("../src/api.js");
+    vi.mocked(api.diff).mockRejectedValueOnce(new ZenMoneyError("timed out", true));
+    const text = getTextContent(await call("set_budget", { month: "2026-03", category: "Food", outcome: 5 }));
+    expect(text).toContain("Affected id: budget 2026-03-01 tag-food");
+    expect(text).toContain("setting it again is safe");
+  });
+
+  it("keeps the other side a write queued ahead set", async () => {
+    const { api, call } = await setup();
+    await Promise.all([
+      call("set_budget", { month: "2026-06", category: "Food", outcome: 10 }),
+      call("set_budget", { month: "2026-06", category: "Food", income: 20 }),
+    ]);
+    expect(vi.mocked(api.diff).mock.calls[2][0].budget![0]).toMatchObject({ outcome: 10, income: 20 });
+  });
+});

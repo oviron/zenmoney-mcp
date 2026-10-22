@@ -22,6 +22,8 @@ Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Bra
 | `delete_transaction` | Delete one or more transactions by id, as the ZenMoney apps do (requires `confirm: true`) |
 | `restore_transaction` | Bring deleted transactions back as copies with new ids |
 | `summarize_transactions` | Totals by category, payee, account or month in the main currency |
+| `get_budget` | A month's budget against actual expenses and income, by category |
+| `set_budget` | Set or remove a month's planned expenses or income for a category or in total |
 | `suggest_category` | Get auto-suggested category for a payee |
 
 ## What this fork changes

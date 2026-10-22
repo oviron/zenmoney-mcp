@@ -7,12 +7,13 @@ import {
   type Company,
   type Instrument,
   type Transaction,
+  type Budget,
   type User,
   type DiffRequest,
   type DiffResponse,
 } from "./api.js";
 
-type WriteChanges = Pick<DiffRequest, "transaction" | "deletion">;
+type WriteChanges = Pick<DiffRequest, "transaction" | "deletion" | "budget">;
 
 export class ZenState {
   private api: ZenMoneyAPI;
@@ -24,6 +25,8 @@ export class ZenState {
   instruments: Instrument[] = [];
   transactions: Transaction[] = [];
   users: User[] = [];
+  /** Keyed by budgetKey(date, tag): budgets have no id of their own. */
+  private budgets = new Map<string, Budget>();
   /**
    * Transactions the server reports as deleted. Kept apart from
    * `transactions`, which only ever holds live ones, so that a listing can
@@ -86,6 +89,7 @@ export class ZenState {
           "merchant",
           "transaction",
           "user",
+          "budget",
         ];
       }
 
@@ -170,6 +174,7 @@ export class ZenState {
     this.instruments = [];
     this.transactions = [];
     this.deletedTransactions.clear();
+    this.budgets.clear();
     this.users = [];
   }
 
@@ -188,6 +193,7 @@ export class ZenState {
     this.mergeEntities("companies", resp.company, (e) => e.id);
     this.mergeEntities("users", resp.user, (e) => e.id);
     this.mergeTransactions(resp.transaction);
+    for (const b of resp.budget ?? []) this.upsertBudget(b);
 
     if (resp.deletion) {
       for (const del of resp.deletion) {
@@ -300,6 +306,18 @@ export class ZenState {
     }
   }
 
+  getBudgets(): Budget[] {
+    return Array.from(this.budgets.values());
+  }
+
+  findBudget(date: string, tag: string | null): Budget | undefined {
+    return this.budgets.get(budgetKey(date, tag));
+  }
+
+  upsertBudget(budget: Budget): void {
+    this.budgets.set(budgetKey(budget.date, budget.tag), budget);
+  }
+
   getTagHierarchy(): { parent: Tag; children: Tag[] }[] {
     const parentTags = this.tags.filter((t) => !t.parent);
     return parentTags.map((parent) => ({
@@ -307,6 +325,10 @@ export class ZenState {
       children: this.tags.filter((t) => t.parent === parent.id),
     }));
   }
+}
+
+function budgetKey(date: string, tag: string | null): string {
+  return `${date}#${tag ?? ""}`;
 }
 
 function defaultSyncTtlMs(): number {
@@ -319,10 +341,13 @@ function uncertainWriteMessage(sent: WriteChanges, cause: Error): string {
   const ids = [
     ...(sent.transaction ?? []).map((t) => t.id),
     ...(sent.deletion ?? []).map((d) => d.id),
+    ...(sent.budget ?? []).map((b) => `budget ${b.date} ${b.tag ?? "uncategorized"}`),
   ];
   return (
     `ZenMoney did not confirm the change (${cause.message}), so it may or may not have been saved. ` +
     `Affected id${ids.length > 1 ? "s" : ""}: ${ids.join(", ")}. ` +
-    "Do not repeat the call, which would write it again under a new id: run sync_data, then look the id up with list_transactions."
+    (sent.transaction?.length || sent.deletion?.length
+      ? "Do not repeat the call, which would write it again under a new id: run sync_data, then look the id up with list_transactions."
+      : "A budget is keyed by month and category, so setting it again is safe.")
   );
 }
