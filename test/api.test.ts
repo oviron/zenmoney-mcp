@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   ZenMoneyAPI,
+  apiBaseFromEnv,
   ZenMoneyAuthError,
   ZenMoneyError,
   validateDiffResponse,
@@ -27,6 +28,7 @@ function mockFetch(...answers: (Response | Error)[]) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.useRealTimers();
 });
 
@@ -43,6 +45,26 @@ describe("ZenMoneyAPI", () => {
     expect(url).toBe("https://api.zenmoney.ru/v8/diff/");
     expect(init.headers.Authorization).toBe("Bearer secret");
     expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("sends requests to the configured domain", async () => {
+    const fetch = mockFetch(jsonResponse(OK_DIFF));
+    await new ZenMoneyAPI("secret", undefined, "https://api.zenmoney.app").diff({
+      currentClientTimestamp: 1,
+      serverTimestamp: 0,
+    });
+    expect(fetch.mock.calls[0][0]).toBe("https://api.zenmoney.app/v8/diff/");
+  });
+
+  it("takes only ZenMoney's own domains from ZENMONEY_API_URL", () => {
+    vi.stubEnv("ZENMONEY_API_URL", undefined);
+    expect(apiBaseFromEnv()).toBe("https://api.zenmoney.ru");
+    vi.stubEnv("ZENMONEY_API_URL", "https://api.zenmoney.app");
+    expect(apiBaseFromEnv()).toBe("https://api.zenmoney.app");
+    expect(apiBaseFromEnv(" ")).toBe("https://api.zenmoney.ru");
+    expect(apiBaseFromEnv("https://api.zenmoney.app/")).toBe("https://api.zenmoney.app");
+    expect(() => apiBaseFromEnv("https://evil.example")).toThrow("ZENMONEY_API_URL must be one of");
+    expect(() => apiBaseFromEnv("http://api.zenmoney.app")).toThrow();
   });
 
   it("explains a rejected token without echoing it", async () => {
