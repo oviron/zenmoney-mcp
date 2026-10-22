@@ -30,6 +30,8 @@ Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Bra
 | `add_reminder` | Plan an expense, income or transfer and create its dated markers through `end_date`, or for one year from `start_date` |
 | `delete_reminder` | Delete a series and its planned markers dated today or later (requires `confirm: true`) |
 | `summarize_transactions` | Totals by category, payee, account or month in the main currency |
+| `get_budget` | A month's budget against actual expenses and income, by category |
+| `set_budget` | Set or remove a month's planned expenses or income for a category or in total |
 | `suggest_category` | Get auto-suggested category for a payee |
 
 ## What this fork changes

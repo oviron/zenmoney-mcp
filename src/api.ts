@@ -10,7 +10,7 @@ export interface DiffRequest {
   account?: any[];
   tag?: any[];
   merchant?: any[];
-  budget?: any[];
+  budget?: Budget[];
   reminder?: Reminder[];
   reminderMarker?: ReminderMarker[];
   transaction?: any[];
@@ -25,12 +25,31 @@ export interface DiffResponse {
   account: Account[];
   tag: Tag[];
   merchant: Merchant[];
-  budget: any[];
+  budget: Budget[];
   reminder: Reminder[];
   reminderMarker: ReminderMarker[];
   transaction: Transaction[];
   deletion: any[];
 }
+
+/**
+ * A monthly plan for one category, keyed by month and category instead of an
+ * id. `tag` is null for uncategorized operations and TOTAL_BUDGET_TAG for the
+ * budget of all of them. Amounts are in the user's main currency.
+ */
+export interface Budget {
+  changed: number;
+  user: number;
+  tag: string | null;
+  /** First day of the month, YYYY-MM-01 */
+  date: string;
+  income: number;
+  incomeLock: boolean;
+  outcome: number;
+  outcomeLock: boolean;
+}
+
+export const TOTAL_BUDGET_TAG = "00000000-0000-0000-0000-000000000000";
 
 export interface Instrument {
   id: number;
