@@ -153,8 +153,9 @@ export class ZenMoneyError extends Error {
   override name = "ZenMoneyError";
   /**
    * True when the server may have processed the request even though no
-   * usable answer came back: a timeout, a dropped connection or a 5xx.
-   * A rejected request (4xx) or a malformed answer is not uncertain.
+   * usable answer came back: a timeout, a dropped connection, a 5xx, or a
+   * 200 whose body is cut off or malformed. A 4xx is certain only when no
+   * earlier attempt of the same request may have reached the server.
    */
   readonly uncertain: boolean;
 
