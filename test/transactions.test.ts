@@ -618,6 +618,36 @@ describe("list_transactions", () => {
     expect(getTextContent(result)).toContain("id: tx-expense");
   });
 
+  it("should filter deleted transactions by an account or category that is gone", async () => {
+    await setup({
+      transactions: [
+        makeTransaction({
+          id: "tx-removed",
+          outcome: 20,
+          deleted: true,
+          outcomeAccount: "acc-gone",
+          incomeAccount: "acc-gone",
+          tag: ["tag-gone"],
+          date: "2026-03-20",
+        }),
+      ],
+    });
+    const range = { start_date: "2026-03-01", end_date: "2026-03-31", show_deleted: true };
+
+    for (const filter of [{ account: "acc-gone" }, { category: "tag-gone" }]) {
+      const result = await callTool("list_transactions", { ...range, ...filter });
+      expect(result.isError, JSON.stringify(filter)).toBeFalsy();
+      expect(getTextContent(result)).toContain("tx-removed");
+    }
+
+    const live = await callTool("list_transactions", {
+      start_date: "2026-03-01",
+      end_date: "2026-03-31",
+      account: "acc-gone",
+    });
+    expect(live.isError).toBe(true);
+  });
+
   it("should list deleted transactions only with show_deleted", async () => {
     await setup({
       transactions: [

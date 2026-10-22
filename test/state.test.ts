@@ -305,6 +305,23 @@ describe("ZenState", () => {
         expect.objectContaining({ id: "tx-1", deleted: true }),
       ]);
     });
+
+    it("should drop deleted transactions a full sync no longer returns", async () => {
+      const api = createApi(
+        makeDiffResponse({
+          transaction: [makeTransaction({ id: "tx-dead", outcome: 2, deleted: true })],
+        })
+      );
+      const state = new ZenState(api);
+      await state.sync();
+
+      vi.mocked(api.diff).mockResolvedValue(
+        makeDiffResponse({ serverTimestamp: 1700000001, transaction: [] })
+      );
+      await state.sync(true);
+
+      expect(state.getDeletedTransactions()).toHaveLength(0);
+    });
   });
 
   describe("deletion", () => {

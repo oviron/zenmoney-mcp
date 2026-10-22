@@ -486,10 +486,16 @@ export function registerTransactionTools(
         (t) => t.date >= lowerBound && (upperBound === null || t.date <= upperBound)
       );
 
+      // A deleted transaction can point at an account or category that is
+      // gone too, so an id that only the listed transactions still carry
+      // is accepted as a filter
       if (account) {
         const match = resolveAccountStrict(state, account);
-        if ("error" in match) return toolError(match.error);
-        const accId = match.account.id;
+        let accId: string;
+        if ("account" in match) accId = match.account.id;
+        else if (pool.some((t) => t.incomeAccount === account || t.outcomeAccount === account))
+          accId = account;
+        else return toolError(match.error);
         filtered = filtered.filter(
           (t) => t.incomeAccount === accId || t.outcomeAccount === accId
         );
@@ -497,8 +503,10 @@ export function registerTransactionTools(
 
       if (category) {
         const match = resolveTagStrict(state, category);
-        if ("error" in match) return toolError(match.error);
-        const tagId = match.tag.id;
+        let tagId: string;
+        if ("tag" in match) tagId = match.tag.id;
+        else if (pool.some((t) => t.tag?.includes(category))) tagId = category;
+        else return toolError(match.error);
         filtered = filtered.filter(
           (t) => t.tag && t.tag.includes(tagId)
         );
