@@ -1,6 +1,6 @@
 {
   "name": "zenmoney-mcp",
-  "version": "0.4.1-oviron.2",
+  "version": "0.4.1-oviron.3",
   "type": "module",
   "bin": {
     "zenmoney-mcp": "build/index.js"

@@ -267,7 +267,7 @@ package with bundled dependencies, which `npx` runs straight from its URL:
       "args": [
         "-y",
         "--allow-remote=all",
-        "--package=https://github.com/oviron/zenmoney-mcp/releases/download/v0.4.1-oviron.2/zenmoney-mcp-0.4.1-oviron.2.tgz",
+        "--package=https://github.com/oviron/zenmoney-mcp/releases/download/v0.4.1-oviron.3/zenmoney-mcp-0.4.1-oviron.3.tgz",
         "zenmoney-mcp"
       ],
       "env": { "ZENMONEY_TOKEN": "your_token_here" }
