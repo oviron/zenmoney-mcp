@@ -106,7 +106,7 @@ describe("get_budget", () => {
     expect(text).toContain("- Food: plan 200.00 USD | spent 101.00 USD | left 99.00 USD | subcategory plans 60.00 USD");
     expect(text).toContain("- Food / Restaurants: plan 60.00 USD | spent 71.00 USD | over by 11.00 USD");
     expect(text).toContain("Income:\n- Salary: plan 1200.00 USD | received 1000.00 USD | still expected 200.00 USD");
-    expect(text).toContain("This month: spent 108.00 USD, received 1000.00 USD");
+    expect(text).toContain("This month, in the budget: spent 108.00 USD, received 1000.00 USD");
     expect(text.indexOf("All categories")).toBeLessThan(text.indexOf("- Food"));
   });
 
@@ -188,6 +188,18 @@ describe("get_budget", () => {
       expect(result.isError).toBe(true);
       expect(getTextContent(result)).toContain("account acc-gone of planned operation m1 is missing");
     });
+  });
+
+  it("leaves categories excluded from the budget out of the month's total", async () => {
+    const { state, call } = await setup(BUDGETS, [marker({ id: "m1", date: "2026-03-20", outcome: 40, tag: ["tag-food"] })]);
+    state.tags = state.tags.map((t) =>
+      t.id === "tag-food" ? { ...t, budgetOutcome: false } : t.id === "tag-salary" ? { ...t, budgetIncome: false } : t);
+    const text = getTextContent(await call("get_budget", { month: "2026-03" }));
+    // Restaurants keeps its own flag; the planned 40 is in Food
+    expect(text).toContain("- All categories: plan 500.00 USD | spent 78.00 USD | left 422.00 USD");
+    expect(text).toContain("- Food: plan 200.00 USD | spent 101.00 USD");
+    expect(text).toContain("- Salary: plan 1200.00 USD | received 1000.00 USD");
+    expect(text).toContain("This month, in the budget: spent 78.00 USD, received 0.00 USD");
   });
 
   it("rejects a malformed month", async () => {

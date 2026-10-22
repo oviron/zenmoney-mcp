@@ -18,7 +18,7 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
     "get_budget",
     {
       title: "Get Budget",
-      description: "Show a month's budget against what was actually spent and received, in your main currency at current rates. A category's fact includes its subcategories; transfers, debts and accounts outside the balance are left out. Unless a plan is fixed with set_budget, it also counts the month's planned operations (reminders) in that category, as ZenMoney does. Answers \"How much is left for food this month?\"",
+      description: "Show a month's budget against what was actually spent and received, in your main currency at current rates. A category's fact includes its subcategories; transfers, debts and accounts outside the balance are left out, and the month's total leaves out categories excluded from the budget. Unless a plan is fixed with set_budget, it also counts the month's planned operations (reminders) in that category, as ZenMoney does. Answers \"How much is left for food this month?\"",
       inputSchema: {
         month: month.optional().describe("Month as YYYY-MM. Defaults to the current month."),
         category: z.string().optional().describe("Only this category (name or UUID) and its subcategories."),
@@ -69,6 +69,11 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
         return { side, amount: (side === "outcome" ? op.outcome : op.income) * (instrument.rate / base.rate) };
       };
       // zerro keeps its settings in reminders on its service account
+      // A category the user left out of the budget counts only in its own row
+      const inBudget = (id: string | undefined, side: keyof Fact) => {
+        const tag = id ? tags.get(id) : undefined;
+        return !tag || (side === "outcome" ? tag.budgetOutcome : tag.budgetIncome) !== false;
+      };
       const visible = new Set(state.getVisibleAccounts().map((a) => a.id));
       const hidden = new Set(state.accounts.filter((a) => !visible.has(a.id)).map((a) => a.id));
       try {
@@ -76,9 +81,9 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
           if (tx.deleted || !tx.date.startsWith(monthKey)) continue;
           const counted = count(tx, "transaction");
           if (!counted) continue;
-          add(facts, TOTAL_BUDGET_TAG, counted.side, counted.amount);
           // ZenMoney books an operation under its first category
           const first = tx.tag?.[0];
+          if (inBudget(first, counted.side)) add(facts, TOTAL_BUDGET_TAG, counted.side, counted.amount);
           if (!first) add(facts, "", counted.side, counted.amount);
           else for (const id of categoryPath(first, tags)) add(facts, id, counted.side, counted.amount);
         }
@@ -86,7 +91,7 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
           if (m.state !== "planned" || !m.date.startsWith(monthKey) || hidden.has(m.outcomeAccount)) continue;
           const counted = count(m, "planned operation");
           if (!counted) continue;
-          add(planned, TOTAL_BUDGET_TAG, counted.side, counted.amount);
+          if (inBudget(m.tag?.[0], counted.side)) add(planned, TOTAL_BUDGET_TAG, counted.side, counted.amount);
           add(planned, m.tag?.[0] ?? "", counted.side, counted.amount);
         }
       } catch (error) {
@@ -144,7 +149,7 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
       const header = `Budget for ${monthKey} | ${base.shortTitle} (current exchange rates)`;
       const total = facts.get(TOTAL_BUDGET_TAG) ?? { outcome: 0, income: 0 };
       const scope = categoryId ? facts.get(categoryId) ?? { outcome: 0, income: 0 } : total;
-      const totals = `${categoryId ? `${tags.get(categoryId)!.title} this month` : "This month"}: spent ${money(scope.outcome)}, received ${money(scope.income)}`;
+      const totals = `${categoryId ? `${tags.get(categoryId)!.title} this month` : "This month, in the budget"}: spent ${money(scope.outcome)}, received ${money(scope.income)}`;
       const sections = [section("outcome", "Expenses", "spent"), section("income", "Income", "received")]
         .filter((s): s is string => s !== undefined);
       if (sections.length === 0) {
