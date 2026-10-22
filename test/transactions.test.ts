@@ -160,7 +160,7 @@ describe("add_expense", () => {
     expect(getTextContent(result)).toContain("not found");
   });
 
-  it("should error when not synced", async () => {
+  it("should sync first when nothing is loaded yet", async () => {
     await setup({ synced: false });
 
     const result = await callTool("add_expense", {
@@ -169,8 +169,8 @@ describe("add_expense", () => {
       date: "2026-03-20",
     });
 
-    expect(result.isError).toBe(true);
-    expect(getTextContent(result)).toContain("not synced");
+    expect(vi.mocked(api.diff).mock.calls[0][0]).toMatchObject({ serverTimestamp: 0 });
+    expect(getTextContent(result)).not.toContain("sync_data");
   });
 
   it("should handle API errors", async () => {
@@ -256,14 +256,15 @@ describe("add_income", () => {
     expect(result.isError).toBe(true);
   });
 
-  it("should error when not synced", async () => {
+  it("should sync first when nothing is loaded yet", async () => {
     await setup({ synced: false });
     const result = await callTool("add_income", {
       account: "Checking",
       amount: 100,
       date: "2026-03-01",
     });
-    expect(result.isError).toBe(true);
+    expect(vi.mocked(api.diff).mock.calls[0][0]).toMatchObject({ serverTimestamp: 0 });
+    expect(getTextContent(result)).not.toContain("sync_data");
   });
 });
 
@@ -440,7 +441,7 @@ describe("add_transfer", () => {
     expect(getTextContent(result)).toContain("Destination account");
   });
 
-  it("should error when not synced", async () => {
+  it("should sync first when nothing is loaded yet", async () => {
     await setup({ synced: false });
     const result = await callTool("add_transfer", {
       from_account: "Checking",
@@ -448,7 +449,8 @@ describe("add_transfer", () => {
       amount: 100,
       date: "2026-03-20",
     });
-    expect(result.isError).toBe(true);
+    expect(vi.mocked(api.diff).mock.calls[0][0]).toMatchObject({ serverTimestamp: 0 });
+    expect(getTextContent(result)).not.toContain("sync_data");
   });
 
   it("should handle same-currency transfer with income_amount (both provided)", async () => {
@@ -826,10 +828,11 @@ describe("list_transactions", () => {
     expect(getTextContent(result)).toContain("No transactions found");
   });
 
-  it("should error when not synced", async () => {
+  it("should sync first when nothing is loaded yet", async () => {
     await setup({ synced: false });
     const result = await callTool("list_transactions", { start_date: "2026-03-01", end_date: "2026-03-31" });
-    expect(result.isError).toBe(true);
+    expect(vi.mocked(api.diff).mock.calls[0][0]).toMatchObject({ serverTimestamp: 0 });
+    expect(getTextContent(result)).not.toContain("sync_data");
   });
 
   it("should filter by explicit start_date and end_date range", async () => {
@@ -1374,16 +1377,16 @@ describe("update_transaction", () => {
     expect(result.isError).toBe(true);
   });
 
-  it("should error when not synced", async () => {
-    await setup({ synced: false });
+  it("should sync first when nothing is loaded yet", async () => {
+    await setup({ synced: false, transactions: [EXPENSE] });
 
     const result = await callTool("update_transaction", {
       id: "tx-expense",
       category: "Food",
     });
 
-    expect(result.isError).toBe(true);
-    expect(getTextContent(result)).toContain("sync_data");
+    expect(vi.mocked(api.diff).mock.calls[0][0]).toMatchObject({ serverTimestamp: 0 });
+    expect(result.isError).toBeFalsy();
   });
 
   it("should keep local state untouched when the API fails", async () => {
@@ -1875,12 +1878,12 @@ describe("delete_transaction", () => {
     expect(state.findTransaction("tx-expense")).toBeDefined();
   });
 
-  it("should error when not synced", async () => {
-    await setup({ synced: false });
+  it("should sync first when nothing is loaded yet", async () => {
+    await setup({ synced: false, transactions: [EXPENSE] });
 
     const result = await callTool("delete_transaction", { id: "tx-expense", confirm: true });
 
-    expect(result.isError).toBe(true);
-    expect(getTextContent(result)).toContain("not synced");
+    expect(vi.mocked(api.diff).mock.calls[0][0]).toMatchObject({ serverTimestamp: 0 });
+    expect(result.isError).toBeFalsy();
   });
 });

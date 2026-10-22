@@ -1,13 +1,13 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZenState } from "../state.js";
-import { notSyncedError, toolText } from "../lib/result.js";
+import { toolText } from "../lib/result.js";
 
 export function registerCategoryTools(server: McpServer, state: ZenState) {
   server.registerTool(
     "list_categories",
     {
       title: "List Categories",
-      description: "List all expense/income categories (tags) with their hierarchy. Sync must be done first.",
+      description: "List all expense/income categories (tags) with their hierarchy.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -15,9 +15,6 @@ export function registerCategoryTools(server: McpServer, state: ZenState) {
       },
     },
     async () => {
-      if (!state.isSynced) {
-        return notSyncedError();
-      }
 
       const hierarchy = state.getTagHierarchy();
       const lines: string[] = [];
@@ -46,7 +43,7 @@ export function registerCategoryTools(server: McpServer, state: ZenState) {
     "list_merchants",
     {
       title: "List Merchants",
-      description: "List known merchants/payees. Sync must be done first.",
+      description: "List known merchants/payees.",
       inputSchema: {},
       annotations: {
         readOnlyHint: true,
@@ -54,9 +51,6 @@ export function registerCategoryTools(server: McpServer, state: ZenState) {
       },
     },
     async () => {
-      if (!state.isSynced) {
-        return notSyncedError();
-      }
 
       const lines = state.merchants.map(
         (m) => `- **${m.title}** — id: \`${m.id}\``

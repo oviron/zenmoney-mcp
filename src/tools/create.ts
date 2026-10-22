@@ -5,7 +5,7 @@ import type { ZenState } from "../state.js";
 import { isoDate } from "../lib/dates.js";
 import { resolveAccountStrict, resolveTagStrict } from "../lib/resolve.js";
 import { serverVersionWarning } from "../lib/format.js";
-import { notSyncedError, toolError, toolText } from "../lib/result.js";
+import { toolError, toolText } from "../lib/result.js";
 
 export function registerCreateTools(server: McpServer, state: ZenState) {
   server.registerTool(
@@ -34,9 +34,6 @@ export function registerCreateTools(server: McpServer, state: ZenState) {
       },
     },
     async ({ account, amount, date, category, payee, comment }) => {
-      if (!state.isSynced) {
-        return notSyncedError();
-      }
 
       const accMatch = resolveAccountStrict(state, account);
       if ("error" in accMatch) return toolError(accMatch.error);
@@ -132,9 +129,6 @@ export function registerCreateTools(server: McpServer, state: ZenState) {
       },
     },
     async ({ account, amount, date, category, payee, comment }) => {
-      if (!state.isSynced) {
-        return notSyncedError();
-      }
 
       const accMatch = resolveAccountStrict(state, account);
       if ("error" in accMatch) return toolError(accMatch.error);
@@ -226,9 +220,6 @@ export function registerCreateTools(server: McpServer, state: ZenState) {
       },
     },
     async ({ from_account, to_account, amount, outcome_amount, income_amount, date, comment }) => {
-      if (!state.isSynced) {
-        return notSyncedError();
-      }
 
       const fromMatch = resolveAccountStrict(state, from_account, "Source account");
       if ("error" in fromMatch) return toolError(fromMatch.error);

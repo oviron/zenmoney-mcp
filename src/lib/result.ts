@@ -7,7 +7,3 @@ export function toolText(text: string) {
 export function toolError(text: string) {
   return { ...toolText(text), isError: true };
 }
-
-export function notSyncedError() {
-  return toolError("Data not synced yet. Please run sync_data first.");
-}

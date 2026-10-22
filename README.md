@@ -8,7 +8,7 @@ Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Bra
 
 | Tool | Description |
 |------|-------------|
-| `sync_data` | Sync data with ZenMoney (run first) |
+| `sync_data` | Refresh data now; other tools sync on their own when it is older than `ZENMONEY_SYNC_TTL` |
 | `list_accounts` | List wallets, cards, and cash accounts |
 | `list_categories` | List expense/income categories with hierarchy |
 | `list_merchants` | List known merchants/payees |
@@ -36,6 +36,14 @@ Each item is one `patch/*` branch off upstream `main`.
 - `validate-dates`: every date parameter must be a real `YYYY-MM-DD` date; `2026-02-30` used to pass.
 - `transfer-same-account`: a transfer to the account it comes from is rejected.
 - `transfer-amounts`: a transfer whose two sides differ (currency exchange) shows both amounts.
+
+## Configuration
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `ZENMONEY_TOKEN` | — | API token, required |
+| `ZENMONEY_SYNC_TTL` | `30` | Seconds the cached data stays fresh; a tool call after that syncs first. `0` syncs before every call |
+| `ZENMONEY_TIMEOUT_MS` | `30000` | How long one API request may take |
 
 ## Prerequisites
 
@@ -117,12 +125,11 @@ cp .env.example .env  # add your token
 
 Once configured, start a conversation and ask your AI client to:
 
-1. **Sync first** — "Sync my ZenMoney data"
-2. **Browse** — "Show me my accounts", "List my categories"
-3. **Query** — "Show expenses for the last 7 days", "List transactions from January 1–31", "How much did I spend on groceries?"
-4. **Add transactions** — "Add a 500 RUB expense for coffee today"
-5. **Transfer** — "Transfer 1000 USD from Checking to Euro Card, received 920 EUR"
-6. **Fix mistakes** — "Recategorize yesterday's Amazon expense to Household", "Change the comment on that 500 RUB coffee", "Delete the duplicate taxi ride from Monday"
+1. **Browse** — "Show me my accounts", "List my categories"
+2. **Query** — "Show expenses for the last 7 days", "List transactions from January 1–31", "How much did I spend on groceries?"
+3. **Add transactions** — "Add a 500 RUB expense for coffee today"
+4. **Transfer** — "Transfer 1000 USD from Checking to Euro Card, received 920 EUR"
+5. **Fix mistakes** — "Recategorize yesterday's Amazon expense to Household", "Change the comment on that 500 RUB coffee", "Delete the duplicate taxi ride from Monday"
 
 `list_transactions` prints each transaction's id, and `update_transaction` and `delete_transaction` take one id or a list of them — so a whole batch can be recategorized or removed in a single call. ZenMoney does not restore deleted transactions, so a deleted one can only be added back as a new transaction.
 

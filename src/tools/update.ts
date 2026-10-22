@@ -9,14 +9,14 @@ import {
   formatTransactionLine,
   serverVersionWarning,
 } from "../lib/format.js";
-import { notSyncedError, toolError, toolText } from "../lib/result.js";
+import { toolError, toolText } from "../lib/result.js";
 
 export function registerUpdateTools(server: McpServer, state: ZenState) {
   server.registerTool(
     "update_transaction",
     {
       title: "Update Transaction",
-      description: "Change an existing transaction: its category, amount, date, payee, comment or account. Only the fields you pass are touched. Pass a single id or a list of ids to apply the same change to several transactions at once (handy for recategorizing). Ids come from list_transactions. Sync must be done first.",
+      description: "Change an existing transaction: its category, amount, date, payee, comment or account. Only the fields you pass are touched. Pass a single id or a list of ids to apply the same change to several transactions at once (handy for recategorizing). Ids come from list_transactions.",
       inputSchema: {
         id: z
           .union([z.string(), z.array(z.string())])
@@ -92,9 +92,6 @@ export function registerUpdateTools(server: McpServer, state: ZenState) {
       from_account,
       to_account,
     }) => {
-      if (!state.isSynced) {
-        return notSyncedError();
-      }
 
       const ids = Array.from(
         new Set((Array.isArray(id) ? id : [id]).map((v) => v.trim()))

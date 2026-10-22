@@ -4,14 +4,14 @@ import type { ZenState } from "../state.js";
 import { isoDate, localDate } from "../lib/dates.js";
 import { resolveAccountStrict, resolveTagStrict } from "../lib/resolve.js";
 import { formatTransactionLine, formatProvenance } from "../lib/format.js";
-import { notSyncedError, toolError, toolText } from "../lib/result.js";
+import { toolError, toolText } from "../lib/result.js";
 
 export function registerListTools(server: McpServer, state: ZenState) {
   server.registerTool(
     "list_transactions",
     {
       title: "List Transactions",
-      description: "List transactions. By default returns the last 30 days; pass start_date/end_date for an arbitrary period (e.g. Jan 1–31). Sync must be done first.",
+      description: "List transactions. By default returns the last 30 days; pass start_date/end_date for an arbitrary period (e.g. Jan 1–31).",
       inputSchema: {
         days: z
           .number()
@@ -62,9 +62,6 @@ export function registerListTools(server: McpServer, state: ZenState) {
       },
     },
     async ({ days, start_date, end_date, account, category, limit, show_provenance, show_deleted }) => {
-      if (!state.isSynced) {
-        return notSyncedError();
-      }
 
       let lowerBound: string;
       let upperBound: string;
