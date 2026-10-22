@@ -11,7 +11,7 @@ Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Bra
 | `sync_data` | Refresh data now; other tools sync on their own when it is older than `ZENMONEY_SYNC_TTL` |
 | `list_accounts` | List wallets, cards, and cash accounts |
 | `list_categories` | List expense/income categories with hierarchy |
-| `add_category` | Create a category, optionally under a top-level parent; visibility defaults to true, budget flags to false |
+| `add_category` | Create a category, optionally under a top-level parent; visibility defaults to true, budget flags follow it |
 | `update_category` | Change title, parent, visibility, budget flags or color; `parent: null` makes a category top-level |
 | `add_account` | Create a `cash`, `ccard` or `checking` account with an initial balance; currency defaults to the user's currency |
 | `update_account` | Change title, archive status, inclusion in the total balance, savings or card credit limit; adjust balances with a correction transaction |
@@ -227,12 +227,11 @@ to record a new debt.
 Category titles must be unique within the same parent, ignoring case. ZenMoney
 supports two levels: a category with children cannot become a child. New
 categories have no icon or picture, and `show_income` / `show_outcome` default to
-true. `budget_income` / `budget_outcome` default to false so creation does not
-automatically include a category in budget totals. The
+true. `budget_income` / `budget_outcome` default to `show_income` / `show_outcome`,
+so a new expense or income category counts in the budget on that side. The
 [API v8 documentation](https://github.com/zenmoney/ZenPlugins/wiki/ZenMoney-API#tag)
-defines these flags but does not specify defaults; its examples and our fixtures
-enable them for the corresponding income or expense direction. Set them
-explicitly when the category should participate in the budget.
+defines these flags without defaults, and `get_budget` leaves a category whose
+flag is false out of the month's total.
 
 `add_account` creates an independent account without bank sync, SMS import or
 automatic balance corrections. `balance` defaults to 0 and also sets

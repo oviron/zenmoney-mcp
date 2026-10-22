@@ -47,7 +47,7 @@
     { "name": "sync_data", "description": "Refresh data from ZenMoney now; other tools sync on their own." },
     { "name": "list_accounts", "description": "List wallets, cards, and cash accounts." },
     { "name": "list_categories", "description": "List expense/income categories with hierarchy." },
-    { "name": "add_category", "description": "Create a category, optionally under a top-level parent; budget flags default to false." },
+    { "name": "add_category", "description": "Create a category, optionally under a top-level parent; budget flags follow the shown sides." },
     { "name": "update_category", "description": "Change a category's title, parent, visibility, budget flags or color." },
     { "name": "add_account", "description": "Create a cash, ccard or checking account with an initial balance." },
     { "name": "update_account", "description": "Change account metadata or a card credit limit; adjust balances with a correction transaction." },
