@@ -98,6 +98,44 @@ describe("checks at the write's turn in the queue", () => {
     expect(api.diff).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    [{ amount: 5 }],
+    [{ outcome_amount: 5 }],
+    [{ income_amount: 5 }],
+  ])("refuses new amounts %o when the transaction changed currency meanwhile", async (args) => {
+    const { api, state, call } = await setup();
+    const sync = holdSync(api, state);
+    const pending = call("update_transaction", { id: "tx-expense", ...args });
+    await vi.waitFor(() => expect(api.diff).toHaveBeenCalledTimes(2));
+    sync.answer(
+      empty(1700000001, {
+        account: [{ ...CHECKING, instrument: 2 }],
+        transaction: [{ ...EXPENSE, incomeInstrument: 2, outcomeInstrument: 2, changed: EXPENSE.changed + 1 }],
+      })
+    );
+    const result = await pending;
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("Transaction tx-expense changed its currency in ZenMoney meanwhile");
+    expect(api.diff).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets an update without amounts through after a currency change", async () => {
+    const { api, state, call } = await setup();
+    const sync = holdSync(api, state);
+    vi.mocked(api.diff).mockResolvedValueOnce(empty(1700000002));
+    const pending = call("update_transaction", { id: "tx-expense", comment: "lunch" });
+    await vi.waitFor(() => expect(api.diff).toHaveBeenCalledTimes(2));
+    sync.answer(
+      empty(1700000001, {
+        account: [{ ...CHECKING, instrument: 2 }],
+        transaction: [{ ...EXPENSE, incomeInstrument: 2, outcomeInstrument: 2, changed: EXPENSE.changed + 1 }],
+      })
+    );
+    const result = await pending;
+    expect(result.isError).toBeFalsy();
+    expect(vi.mocked(api.diff).mock.calls[2][0].transaction![0]).toMatchObject({ outcomeInstrument: 2, comment: "lunch" });
+  });
+
   it("refuses a transfer when its destination changed currency meanwhile", async () => {
     const { api, state, call } = await setup();
     const sync = holdSync(api, state);
