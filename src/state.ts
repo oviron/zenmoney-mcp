@@ -1,5 +1,6 @@
 import {
   ZenMoneyAPI,
+  ZenMoneyError,
   type Account,
   type Tag,
   type Merchant,
@@ -40,7 +41,7 @@ export class ZenState {
     return this.synced;
   }
 
-  async sync(forceFull = false): Promise<DiffResponse> {
+  async sync(forceFull = false, signal?: AbortSignal): Promise<DiffResponse> {
     const resp = await this.serialize(async () => {
       const timestamp = forceFull ? 0 : this.serverTimestamp;
 
@@ -61,7 +62,9 @@ export class ZenState {
         ];
       }
 
-      const resp = await this.api.diff(req);
+      const resp = signal
+        ? await this.api.diff(req, { signal })
+        : await this.api.diff(req);
       if (forceFull) this.clear();
       this.applyDiff(resp);
       return resp;
@@ -79,6 +82,11 @@ export class ZenState {
    * Pass `changes` as a function when they are derived from local state: it
    * runs when this write's turn comes, after the exchanges queued before it
    * have been applied. A throw from it rejects the write without sending.
+   *
+   * A dropped connection or a 5xx is retried with the same body, which is
+   * safe because every object carries its own id. If the outcome stays
+   * unknown, the error names the ids so the caller can check them instead
+   * of writing again under new ids.
    */
   write(
     changes: WriteChanges | (() => WriteChanges),
@@ -86,11 +94,19 @@ export class ZenState {
   ): Promise<DiffResponse> {
     return this.serialize(async () => {
       const sent = typeof changes === "function" ? changes() : changes;
-      const resp = await this.api.diff({
-        currentClientTimestamp: Math.floor(Date.now() / 1000),
-        serverTimestamp: this.serverTimestamp,
-        ...sent,
-      });
+      let resp: DiffResponse;
+      try {
+        resp = await this.api.diff({
+          currentClientTimestamp: Math.floor(Date.now() / 1000),
+          serverTimestamp: this.serverTimestamp,
+          ...sent,
+        });
+      } catch (error) {
+        if (error instanceof ZenMoneyError && error.uncertain) {
+          throw new ZenMoneyError(uncertainWriteMessage(sent, error), true);
+        }
+        throw error;
+      }
       for (const d of sent.deletion ?? []) this.applyDeletion(d.object, d.id);
       beforeApply?.();
       this.applyDiff(resp);
@@ -135,7 +151,6 @@ export class ZenState {
    * changes from every later incremental sync.
    */
   private applyDiff(resp: DiffResponse): void {
-    this.serverTimestamp = resp.serverTimestamp;
     this.mergeEntities("instruments", resp.instrument, (e) => e.id);
     this.mergeEntities("accounts", resp.account, (e) => e.id);
     this.mergeEntities("tags", resp.tag, (e) => e.id);
@@ -149,6 +164,9 @@ export class ZenState {
         this.applyDeletion(del.object, del.id);
       }
     }
+    // Last, so that a failure above cannot move the cursor past changes
+    // that were never applied
+    this.serverTimestamp = resp.serverTimestamp;
   }
 
   private mergeEntities<T>(
@@ -248,4 +266,16 @@ export class ZenState {
       children: this.tags.filter((t) => t.parent === parent.id),
     }));
   }
+}
+
+function uncertainWriteMessage(sent: WriteChanges, cause: Error): string {
+  const ids = [
+    ...(sent.transaction ?? []).map((t) => t.id),
+    ...(sent.deletion ?? []).map((d) => d.id),
+  ];
+  return (
+    `ZenMoney did not confirm the change (${cause.message}), so it may or may not have been saved. ` +
+    `Affected id${ids.length > 1 ? "s" : ""}: ${ids.join(", ")}. ` +
+    "Do not repeat the call, which would write it again under a new id: run sync_data, then look the id up with list_transactions."
+  );
 }
