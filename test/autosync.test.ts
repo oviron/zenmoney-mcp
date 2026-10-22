@@ -14,7 +14,7 @@ async function setup(syncTtlMs: number) {
   await connectPair(pair);
   const call = (name: string, args: Record<string, unknown> = {}) =>
     pair.client.callTool({ name, arguments: args });
-  return { api, state, call };
+  return { api, state, call, client: pair.client };
 }
 
 afterEach(() => {
@@ -77,6 +77,50 @@ describe("sync before each tool", () => {
     const text = getTextContent(result);
     expect(text).toContain("Checking");
     expect(text).toMatch(/refreshing from ZenMoney failed \(Cannot reach ZenMoney API: fetch failed\), so this is based on data from \d+ s ago/);
+  });
+
+  it("does not write from an old cache when the refresh fails", async () => {
+    const { api, call } = await setup(0);
+    await call("list_accounts");
+    vi.mocked(api.diff).mockRejectedValueOnce(new Error("fetch failed"));
+    const result = await call("add_expense", { account: "Checking", amount: 5, date: "2026-03-20" });
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("Nothing was saved");
+    expect(api.diff).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.diff).mock.calls[1][0]).not.toHaveProperty("transaction");
+  });
+
+  it.each([
+    ["the refresh fails", false],
+    ["the refresh succeeds", true],
+  ])("does not write after the call is cancelled while %s", async (_, succeeds) => {
+    const { api, call, client } = await setup(0);
+    await call("list_accounts");
+    let finish!: () => void;
+    vi.mocked(api.diff).mockImplementationOnce(
+      (_req, options) =>
+        new Promise((resolve, reject) => {
+          finish = () => resolve(makeDiffResponse({ serverTimestamp: 1700000001 }));
+          options?.signal?.addEventListener("abort", () => {
+            if (!succeeds) reject(new ZenMoneyError("Request to ZenMoney was cancelled.", true));
+          });
+        })
+    );
+    const controller = new AbortController();
+    const pending = client
+      .callTool(
+        { name: "add_expense", arguments: { account: "Checking", amount: 5, date: "2026-03-20" } },
+        undefined,
+        { signal: controller.signal }
+      )
+      .catch(() => undefined);
+    await vi.waitFor(() => expect(api.diff).toHaveBeenCalledTimes(2));
+    controller.abort();
+    await pending;
+    await new Promise((r) => setTimeout(r, 10));
+    if (succeeds) finish();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(api.diff).toHaveBeenCalledTimes(2);
   });
 
   it("fails when there is nothing cached and ZenMoney cannot be reached", async () => {
