@@ -1,14 +1,14 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZenState } from "../state.js";
-import { notSyncedError, toolText } from "../lib/result.js";
+import { toolText } from "../lib/result.js";
 
 export function registerAccountTools(server: McpServer, state: ZenState) {
   server.registerTool(
     "list_accounts",
     {
       title: "List Accounts",
-      description: "List all user accounts (wallets, cards, cash), with balance and currency. Unavailable balances are marked unknown. Sync must be done first.",
+      description: "List all user accounts (wallets, cards, cash), with balance and currency. Unavailable balances are marked unknown.",
       inputSchema: {
         include_archived: z
           .boolean()
@@ -22,9 +22,6 @@ export function registerAccountTools(server: McpServer, state: ZenState) {
       },
     },
     async ({ include_archived }) => {
-      if (!state.isSynced) {
-        return notSyncedError();
-      }
 
       const accounts = include_archived
         ? state.accounts

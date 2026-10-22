@@ -70,13 +70,14 @@ describe("list_categories", () => {
     expect(text).toContain("tag-salary");
   });
 
-  it("should error when not synced", async () => {
+  it("should sync first when nothing is loaded yet", async () => {
     await setup({ synced: false });
     const result = await client.callTool({
       name: "list_categories",
       arguments: {},
     });
-    expect(result.isError).toBe(true);
+    expect(state.isSynced).toBe(true);
+    expect(result.isError).toBeFalsy();
   });
 });
 
@@ -95,12 +96,13 @@ describe("list_merchants", () => {
     expect(text).toContain("merchant-cafe");
   });
 
-  it("should error when not synced", async () => {
+  it("should sync first when nothing is loaded yet", async () => {
     await setup({ synced: false });
     const result = await client.callTool({
       name: "list_merchants",
       arguments: {},
     });
-    expect(result.isError).toBe(true);
+    expect(state.isSynced).toBe(true);
+    expect(result.isError).toBeFalsy();
   });
 });

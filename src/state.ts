@@ -32,13 +32,40 @@ export class ZenState {
   private deletedTransactions = new Map<string, Transaction>();
   private synced = false;
   private queue: Promise<unknown> = Promise.resolve();
+  /** When the state last caught up with the server (Date.now()). */
+  private lastSync = 0;
+  private refreshing: Promise<void> | undefined;
+  /** How old the state may get before a tool call syncs it first. */
+  readonly syncTtlMs: number;
 
-  constructor(api: ZenMoneyAPI) {
+  constructor(api: ZenMoneyAPI, options: { syncTtlMs?: number } = {}) {
     this.api = api;
+    this.syncTtlMs = options.syncTtlMs ?? defaultSyncTtlMs();
   }
 
   get isSynced(): boolean {
     return this.synced;
+  }
+
+  /** Milliseconds since the state last caught up with the server. */
+  get age(): number {
+    return Date.now() - this.lastSync;
+  }
+
+  /**
+   * Sync incrementally unless the last sync is younger than syncTtlMs, so
+   * that a long-running server does not answer from a stale cache. Calls
+   * that arrive while a sync is running wait for it instead of starting
+   * another.
+   */
+  async ensureFresh(signal?: AbortSignal): Promise<void> {
+    if (this.synced && this.age < this.syncTtlMs) return;
+    this.refreshing ??= this.sync(false, signal)
+      .then(() => undefined)
+      .finally(() => {
+        this.refreshing = undefined;
+      });
+    await this.refreshing;
   }
 
   async sync(forceFull = false, signal?: AbortSignal): Promise<DiffResponse> {
@@ -67,6 +94,7 @@ export class ZenState {
         : await this.api.diff(req);
       if (forceFull) this.clear();
       this.applyDiff(resp);
+      this.lastSync = Date.now();
       return resp;
     });
     this.synced = true;
@@ -110,6 +138,8 @@ export class ZenState {
       for (const d of sent.deletion ?? []) this.applyDeletion(d.object, d.id);
       beforeApply?.();
       this.applyDiff(resp);
+      // The response carries everything that changed since the cursor
+      this.lastSync = Date.now();
       return resp;
     });
   }
@@ -266,6 +296,12 @@ export class ZenState {
       children: this.tags.filter((t) => t.parent === parent.id),
     }));
   }
+}
+
+function defaultSyncTtlMs(): number {
+  const raw = process.env.ZENMONEY_SYNC_TTL?.trim();
+  const seconds = raw ? Number(raw) : NaN;
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : 30_000;
 }
 
 function uncertainWriteMessage(sent: WriteChanges, cause: Error): string {

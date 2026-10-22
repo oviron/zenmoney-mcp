@@ -8,7 +8,7 @@ export function registerSyncTools(server: McpServer, state: ZenState) {
     "sync_data",
     {
       title: "Sync Data",
-      description: "Sync data with ZenMoney. Run this first before using other tools. Use force_full=true to re-download everything.",
+      description: "Refresh data from ZenMoney now. Other tools sync on their own when the data is older than ZENMONEY_SYNC_TTL (30 s by default), so this is only needed to pick up a change made elsewhere a moment ago, or with force_full=true to re-download everything.",
       inputSchema: {
         force_full: z
           .boolean()
@@ -21,9 +21,9 @@ export function registerSyncTools(server: McpServer, state: ZenState) {
         openWorldHint: true,
       },
     },
-    async ({ force_full }) => {
+    async ({ force_full }, extra) => {
       try {
-        const resp = await state.sync(force_full);
+        const resp = await state.sync(force_full, extra.signal);
         const summary = {
           accounts: state.accounts.length,
           active_accounts: state.getActiveAccounts().length,

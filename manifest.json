@@ -44,7 +44,7 @@
     }
   },
   "tools": [
-    { "name": "sync_data", "description": "Sync data with ZenMoney. Run first." },
+    { "name": "sync_data", "description": "Refresh data from ZenMoney now; other tools sync on their own." },
     { "name": "list_accounts", "description": "List wallets, cards, and cash accounts." },
     { "name": "list_categories", "description": "List expense/income categories with hierarchy." },
     { "name": "list_merchants", "description": "List known merchants/payees." },

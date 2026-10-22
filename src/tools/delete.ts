@@ -3,14 +3,14 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Transaction } from "../api.js";
 import type { ZenState } from "../state.js";
 import { formatTransactionLine } from "../lib/format.js";
-import { notSyncedError, toolError, toolText } from "../lib/result.js";
+import { toolError, toolText } from "../lib/result.js";
 
 export function registerDeleteTools(server: McpServer, state: ZenState) {
   server.registerTool(
     "delete_transaction",
     {
       title: "Delete Transaction",
-      description: "Delete one or more transactions by id. This cannot be undone: ZenMoney does not let a deleted transaction be restored, so putting an operation back means adding it again as a new transaction. Ids come from list_transactions. Sync must be done first.",
+      description: "Delete one or more transactions by id. This cannot be undone: ZenMoney does not let a deleted transaction be restored, so putting an operation back means adding it again as a new transaction. Ids come from list_transactions.",
       inputSchema: {
         id: z
           .union([z.string(), z.array(z.string())])
@@ -29,9 +29,6 @@ export function registerDeleteTools(server: McpServer, state: ZenState) {
       },
     },
     async ({ id, confirm }) => {
-      if (!state.isSynced) {
-        return notSyncedError();
-      }
 
       if (confirm !== true) {
         return toolError(
