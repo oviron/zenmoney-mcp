@@ -202,8 +202,17 @@ export class ZenMoneyAPI {
     body: unknown,
     { retry = false, signal }: RequestOptions = {}
   ): Promise<T> {
+    // Once an attempt may have reached the server, the outcome stays
+    // unknown until one is confirmed: a later 4xx says nothing about it.
+    let unsure = false;
     for (let attempt = 0; ; attempt++) {
       const timeout = AbortSignal.timeout(this.timeoutMs);
+      const cancelled = () => new ZenMoneyError("Request to ZenMoney was cancelled.", true);
+      const timedOut = () =>
+        new ZenMoneyError(
+          `ZenMoney API did not answer within ${Math.round(this.timeoutMs / 1000)}s.`,
+          true
+        );
       let response: Response;
       try {
         response = await fetch(`${API_BASE}${path}`, {
@@ -216,15 +225,9 @@ export class ZenMoneyAPI {
           signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         });
       } catch (error) {
-        if (signal?.aborted) {
-          throw new ZenMoneyError("Request to ZenMoney was cancelled.", true);
-        }
-        if (timeout.aborted) {
-          throw new ZenMoneyError(
-            `ZenMoney API did not answer within ${Math.round(this.timeoutMs / 1000)}s.`,
-            true
-          );
-        }
+        if (signal?.aborted) throw cancelled();
+        if (timeout.aborted) throw timedOut();
+        unsure = true;
         if (retry && attempt < RETRY_DELAYS_MS.length) {
           await sleep(RETRY_DELAYS_MS[attempt], signal);
           continue;
@@ -236,15 +239,26 @@ export class ZenMoneyAPI {
       }
 
       if (response.ok) {
+        // The server has taken the request; anything wrong from here on
+        // leaves its outcome unknown
+        let text: string;
         try {
-          return (await response.json()) as T;
+          text = await response.text();
         } catch {
-          throw new ZenMoneyError("ZenMoney API returned a response that is not JSON.");
+          if (signal?.aborted) throw cancelled();
+          if (timeout.aborted) throw timedOut();
+          throw new ZenMoneyError("ZenMoney API answer was cut off.", true);
+        }
+        try {
+          return JSON.parse(text) as T;
+        } catch {
+          throw new ZenMoneyError("ZenMoney API returned a response that is not JSON.", true);
         }
       }
 
+      if (response.status >= 500) unsure = true;
       if (retry && RETRYABLE_STATUS.has(response.status) && attempt < RETRY_DELAYS_MS.length) {
-        await response.body?.cancel();
+        await response.body?.cancel().catch(() => undefined);
         await sleep(retryAfterMs(response) ?? RETRY_DELAYS_MS[attempt], signal);
         continue;
       }
@@ -253,13 +267,11 @@ export class ZenMoneyAPI {
       const suffix = detail ? `: ${detail}` : "";
       if (response.status === 401 || response.status === 403) {
         throw new ZenMoneyAuthError(
-          `ZenMoney rejected the token (HTTP ${response.status})${suffix}. ${TOKEN_HELP}`
+          `ZenMoney rejected the token (HTTP ${response.status})${suffix}. ${TOKEN_HELP}`,
+          unsure
         );
       }
-      throw new ZenMoneyError(
-        `ZenMoney API error ${response.status}${suffix}`,
-        response.status >= 500
-      );
+      throw new ZenMoneyError(`ZenMoney API error ${response.status}${suffix}`, unsure);
     }
   }
 
@@ -284,7 +296,7 @@ export class ZenMoneyAPI {
       ...options,
     });
     if (!Array.isArray(resp)) {
-      throw new ZenMoneyError("ZenMoney API returned an unexpected suggest response.");
+      throw new ZenMoneyError("ZenMoney API returned an unexpected suggest response.", true);
     }
     return resp as SuggestResponse[];
   }
@@ -311,7 +323,8 @@ const DIFF_ARRAYS = [
  */
 export function validateDiffResponse(resp: unknown): DiffResponse {
   const bad = (what: string) =>
-    new ZenMoneyError(`ZenMoney API returned an unexpected diff response: ${what}.`);
+    // The server answered 200, so a write in the request was taken
+    new ZenMoneyError(`ZenMoney API returned an unexpected diff response: ${what}.`, true);
   if (!resp || typeof resp !== "object" || Array.isArray(resp)) throw bad("not an object");
   const r = resp as Record<string, unknown>;
   if (typeof r.serverTimestamp !== "number" || !Number.isFinite(r.serverTimestamp)) {

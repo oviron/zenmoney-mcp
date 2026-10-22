@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { ZenState } from "../src/state.js";
-import { ZenMoneyError, type ZenMoneyAPI } from "../src/api.js";
+import { ZenMoneyAPI, ZenMoneyError } from "../src/api.js";
 import { makeDiffResponse, makeTransaction } from "./fixtures.js";
 
 function setup() {
@@ -52,5 +52,26 @@ describe("write outcome", () => {
     );
     await state.sync();
     expect(state.findTransaction("tx-landed")).toBeDefined();
+  });
+
+  it("names the ids when a write is answered with something unreadable", async () => {
+    const real = new ZenMoneyAPI("t");
+    const fetch = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify(makeDiffResponse()), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetch);
+    try {
+      const state = new ZenState(real);
+      await state.sync();
+      fetch.mockResolvedValueOnce(new Response("<html>oops</html>", { status: 200 }));
+      const err = await state
+        .write({ transaction: [makeTransaction({ id: "tx-garbled" })] })
+        .catch((e) => e);
+      expect(err.uncertain).toBe(true);
+      expect(err.message).toContain("tx-garbled");
+      expect(err.message).toContain("not JSON");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

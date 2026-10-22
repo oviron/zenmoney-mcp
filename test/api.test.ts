@@ -136,11 +136,59 @@ describe("ZenMoneyAPI", () => {
     expect((await pending).message).toContain("cancelled");
   });
 
+  it("keeps an earlier unknown outcome when a later attempt is rejected", async () => {
+    vi.useFakeTimers();
+    mockFetch(jsonResponse({}, 502), jsonResponse({ error: "invalid_token" }, 401));
+    const pending = new ZenMoneyAPI("t")
+      .diff({ currentClientTimestamp: 1, serverTimestamp: 0 })
+      .catch((e) => e);
+    await vi.runAllTimersAsync();
+    const err = await pending;
+    expect(err).toBeInstanceOf(ZenMoneyAuthError);
+    expect(err.uncertain).toBe(true);
+  });
+
+  it("keeps retrying when the dropped body cannot be released", async () => {
+    vi.useFakeTimers();
+    const broken = new Response("busy", { status: 503 });
+    Object.defineProperty(broken, "body", {
+      value: { cancel: () => Promise.reject(new TypeError("terminated")) },
+    });
+    const fetch = mockFetch(broken, jsonResponse(OK_DIFF));
+    const pending = new ZenMoneyAPI("t").diff({ currentClientTimestamp: 1, serverTimestamp: 0 });
+    await vi.runAllTimersAsync();
+    await expect(pending).resolves.toMatchObject({ serverTimestamp: 1700000000 });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats an answer cut off after 200 as an unknown outcome", async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.error(new TypeError("terminated"));
+      },
+    });
+    mockFetch(new Response(stream, { status: 200 }));
+    const err = await new ZenMoneyAPI("t")
+      .diff({ currentClientTimestamp: 1, serverTimestamp: 0 })
+      .catch((e) => e);
+    expect(err.message).toContain("cut off");
+    expect(err.uncertain).toBe(true);
+  });
+
+  it("treats a malformed diff after 200 as an unknown outcome", async () => {
+    mockFetch(jsonResponse({ account: [] }));
+    const err = await new ZenMoneyAPI("t")
+      .diff({ currentClientTimestamp: 1, serverTimestamp: 0 })
+      .catch((e) => e);
+    expect(err.message).toContain("no serverTimestamp");
+    expect(err.uncertain).toBe(true);
+  });
+
   it("rejects a body that is not JSON", async () => {
     mockFetch(new Response("<html>", { status: 200 }));
     await expect(
       new ZenMoneyAPI("t").diff({ currentClientTimestamp: 1, serverTimestamp: 0 })
-    ).rejects.toThrow("not JSON");
+    ).rejects.toMatchObject({ message: expect.stringContaining("not JSON"), uncertain: true });
   });
 });
 
