@@ -280,7 +280,18 @@ export class ZenState {
     return this.transactions.find((t) => t.id === id);
   }
 
+  findDeletedTransaction(id: string): Transaction | undefined {
+    return this.deletedTransactions.get(id);
+  }
+
+  /** Store a transaction we sent; a deleted one moves out of the live list. */
   upsertTransaction(tx: Transaction): void {
+    if (tx.deleted) {
+      this.transactions = this.transactions.filter((t) => t.id !== tx.id);
+      this.deletedTransactions.set(tx.id, tx);
+      return;
+    }
+    this.deletedTransactions.delete(tx.id);
     const idx = this.transactions.findIndex((t) => t.id === tx.id);
     if (idx >= 0) {
       this.transactions[idx] = tx;
