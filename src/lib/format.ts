@@ -16,35 +16,64 @@ export function currencyOf(state: ZenState, instrument: number): string {
   return state.getInstrument(instrument)?.shortTitle ?? "";
 }
 
-export function formatTransactionLine(state: ZenState, t: Transaction): string {
-  const isExpense = t.outcome > 0 && t.income === 0;
-  const isIncome = t.income > 0 && t.outcome === 0;
-  const isTransfer = t.incomeAccount !== t.outcomeAccount;
+export function transactionType(t: Transaction): "expense" | "income" | "transfer" | "other" {
+  if (t.incomeAccount !== t.outcomeAccount) return "transfer";
+  if (t.outcome > 0 && t.income === 0) return "expense";
+  if (t.income > 0 && t.outcome === 0) return "income";
+  return "other";
+}
 
-  let type = "other";
+function formatAmount(
+  state: ZenState,
+  amount: number,
+  instrument: number,
+  originalAmount: number | null,
+  originalInstrument: number | null,
+  sign = ""
+): string {
+  const accountAmount = `${sign}${amount} ${currencyOf(state, instrument)}`;
+  if (
+    originalAmount == null || originalInstrument == null ||
+    (originalAmount === amount && originalInstrument === instrument)
+  ) return accountAmount;
+  return `${sign}${originalAmount} ${currencyOf(state, originalInstrument)} (${accountAmount})`;
+}
+
+export function formatTransactionLine(state: ZenState, t: Transaction): string {
+  const type = transactionType(t);
+  const outcome = (sign = "") => formatAmount(
+    state, t.outcome, t.outcomeInstrument, t.opOutcome, t.opOutcomeInstrument, sign
+  );
+  const income = (sign = "") => formatAmount(
+    state, t.income, t.incomeInstrument, t.opIncome, t.opIncomeInstrument, sign
+  );
   let amountStr = "";
 
-  if (isTransfer) {
+  if (type === "transfer") {
     const from = accountTitle(state, t.outcomeAccount);
     const to = accountTitle(state, t.incomeAccount);
-    type = "transfer";
-    if (t.outcomeInstrument !== t.incomeInstrument || t.outcome !== t.income) {
-      amountStr = `${t.outcome} ${currencyOf(state, t.outcomeInstrument)} → ${t.income} ${currencyOf(state, t.incomeInstrument)} (${from} → ${to})`;
+    if (
+      t.outcomeInstrument !== t.incomeInstrument || t.outcome !== t.income ||
+      outcome() !== income()
+    ) {
+      amountStr = `${outcome()} → ${income()} (${from} → ${to})`;
     } else {
-      amountStr = `${t.outcome} (${from} → ${to})`;
+      amountStr = `${outcome()} (${from} → ${to})`;
     }
-  } else if (isExpense) {
-    type = "expense";
-    amountStr = `-${t.outcome} ${currencyOf(state, t.outcomeInstrument)}`;
-  } else if (isIncome) {
-    type = "income";
-    amountStr = `+${t.income} ${currencyOf(state, t.incomeInstrument)}`;
+  } else if (type === "expense") {
+    amountStr = outcome("-");
+  } else if (type === "income") {
+    amountStr = income("+");
+  } else if (t.outcome !== 0 || t.income !== 0) {
+    amountStr = `${outcome("-")} / ${income("+")}`;
   }
 
   const cats = t.tag
     ? t.tag.map((id) => state.tags.find((tg) => tg.id === id)?.title ?? id).join(", ")
     : "";
-  const payeeStr = t.payee ?? "";
+  const payeeStr = t.payee?.trim()
+    ? t.payee
+    : state.merchants.find((m) => m.id === t.merchant)?.title ?? "";
   const commentStr = t.comment ? ` — "${t.comment}"` : "";
   // A hold is a card authorization the bank has not settled yet
   const holdStr = t.hold ? " [HOLD]" : "";

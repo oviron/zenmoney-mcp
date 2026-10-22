@@ -8,7 +8,7 @@ export function registerAccountTools(server: McpServer, state: ZenState) {
     "list_accounts",
     {
       title: "List Accounts",
-      description: "List all user accounts (wallets, cards, cash). Sync must be done first.",
+      description: "List all user accounts (wallets, cards, cash), with balance and currency. Unavailable balances are marked unknown. Sync must be done first.",
       inputSchema: {
         include_archived: z
           .boolean()
@@ -37,7 +37,7 @@ export function registerAccountTools(server: McpServer, state: ZenState) {
         const currency = instr
           ? `${instr.shortTitle} (${instr.title}, ${instr.symbol})`
           : "???";
-        const balance = a.balance ?? 0;
+        const balance = a.balance ?? "unknown";
         const company = a.company
           ? state.getCompany(a.company)
           : null;

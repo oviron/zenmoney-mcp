@@ -663,7 +663,7 @@ describe("list_transactions", () => {
       limit: 3,
     });
     const text = getTextContent(result);
-    expect(text).toContain("Transactions (3 of 10, raise limit to see the rest)");
+    expect(text).toContain("Transactions (3 of 10, offset: 0, next offset: 3)");
   });
 
   it("should reject a limit that is not a positive integer", async () => {
