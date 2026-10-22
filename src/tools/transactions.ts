@@ -451,8 +451,15 @@ export function registerTransactionTools(
         .describe(
           "Add a line under each transaction with when it was created and the bank import ids (bankID). Useful to tell a bank import that came in twice from two real operations."
         ),
+      show_deleted: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Also list transactions deleted on the server, marked [DELETED]. Useful when a balance does not add up or to check whether a duplicate was already removed."
+        ),
     },
-    async ({ days, start_date, end_date, account, category, limit, show_provenance }) => {
+    async ({ days, start_date, end_date, account, category, limit, show_provenance, show_deleted }) => {
       if (!state.isSynced) {
         return {
           content: [
@@ -489,7 +496,11 @@ export function registerTransactionTools(
         upperBound = localDate(new Date());
       }
 
-      let filtered = state.transactions.filter(
+      const pool = show_deleted
+        ? [...state.transactions, ...state.getDeletedTransactions()]
+        : state.transactions;
+
+      let filtered = pool.filter(
         (t) => t.date >= lowerBound && t.date <= upperBound
       );
 
@@ -978,8 +989,9 @@ function formatTransactionLine(state: ZenState, t: Transaction): string {
   const commentStr = t.comment ? ` — "${t.comment}"` : "";
   // A hold is a card authorization the bank has not settled yet
   const holdStr = t.hold ? " [HOLD]" : "";
+  const deletedStr = t.deleted ? " [DELETED]" : "";
 
-  return `${t.date} | ${type.padEnd(8)} | ${amountStr.padEnd(20)} | ${cats.padEnd(15)} | ${payeeStr}${commentStr}${holdStr} | id: ${t.id}`;
+  return `${t.date} | ${type.padEnd(8)} | ${amountStr.padEnd(20)} | ${cats.padEnd(15)} | ${payeeStr}${commentStr}${holdStr}${deletedStr} | id: ${t.id}`;
 }
 
 function formatProvenance(t: Transaction): string {
