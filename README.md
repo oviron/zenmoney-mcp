@@ -39,7 +39,7 @@ Each item is one `patch/*` branch off upstream `main`.
 
 ## Prerequisites
 
-- Node.js >= 18
+- Node.js >= 20
 - A [ZenMoney](https://zenmoney.ru) account
 - API token from [zerro.app/token](https://zerro.app/token)
 
