@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ZenMoneyAPI } from "./api.js";
 import type { ZenState } from "./state.js";
@@ -13,6 +14,9 @@ import { registerDebtTools } from "./tools/debts.js";
 import { registerReminderTools } from "./tools/reminders.js";
 import { registerCatalogTools } from "./tools/catalogs.js";
 
+// package.json sits one level up both from src/ and from build/
+const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
+
 export function createServer(
   api: ZenMoneyAPI,
   state: ZenState,
@@ -20,7 +24,7 @@ export function createServer(
 ) {
   const server = new McpServer({
     name: "zenmoney-mcp",
-    version: "0.4.1-oviron.1",
+    version,
   });
 
   if (options.readOnly ?? readOnlyFromEnv()) onlyReadOnlyTools(server);
