@@ -18,6 +18,7 @@ Fork of [artarasov/zenmoney-mcp](https://github.com/artarasov/zenmoney-mcp). Bra
 | `add_transfer` | Transfer money between accounts (including cross-currency) |
 | `update_transaction` | Change an existing transaction — category, amount, date, payee, comment, account |
 | `delete_transaction` | Delete one or more transactions by id (cannot be undone, requires `confirm: true`) |
+| `summarize_transactions` | Totals by category, payee, account or month in the main currency |
 | `suggest_category` | Get auto-suggested category for a payee |
 
 ## What this fork changes
