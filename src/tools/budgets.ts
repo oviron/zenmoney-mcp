@@ -27,7 +27,7 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
     "get_budget",
     {
       title: "Get Budget",
-      description: "Show a month's budget against what was actually spent and received, in your main currency at current rates. A category's fact includes its subcategories; transfers, debts and accounts outside the balance are left out, and the month's total leaves out categories excluded from the budget. Unless a plan is fixed with set_budget, it also counts the month's planned operations (reminders) in that category, as ZenMoney does. Answers \"How much is left for food this month?\"",
+      description: "Show a month's native ZenMoney category budget (plans stored in ZenMoney) against what was actually spent and received, in your main currency at current rates. A category's fact includes its subcategories; transfers, debts and accounts outside the balance are left out, and the month's total leaves out categories excluded from the budget. Unless a plan is fixed with set_budget, it also counts the month's planned operations (reminders) in that category, as ZenMoney does. Answers \"How much is left for food this month?\" This is not Zerro's envelope budget: for envelopes, unallocated money and overspending use the separate zerro MCP server (oviron/zerro-mcp).",
       inputSchema: {
         month: month.optional().describe("Month as YYYY-MM. Defaults to the current month."),
         category: z.string().optional().describe("Only this category (name or UUID) and its subcategories."),
@@ -194,7 +194,7 @@ export function registerBudgetTools(server: McpServer, state: ZenState) {
     "set_budget",
     {
       title: "Set Budget",
-      description: "Set a month's planned expenses and/or income for a category, or for all categories with total: true, in your main currency. Pass 0 to remove that plan. The other side of an existing budget is kept.",
+      description: "Set a month's native ZenMoney planned expenses and/or income for a category, or for all categories with total: true, in your main currency. Pass 0 to remove that plan. The other side of an existing budget is kept. Zerro envelopes are not changed; use the zerro MCP server for them.",
       inputSchema: {
         month: month.describe("Month as YYYY-MM"),
         category: z.string().optional().describe("Category name or UUID. Omit when total is true."),
